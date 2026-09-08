@@ -1,0 +1,143 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /* Фирменная палитра СТРОЙМАТ: оранжевый акцент + графитовый серый */
+  --brand-orange: #f0a11b;
+  --brand-orange-dark: #d1870c;
+  --brand-gray: #575756;
+  --brand-gray-dark: #3f4042;
+
+  --background: #f7f7f6;
+  --foreground: #24241f;
+  --card: #ffffff;
+  --card-foreground: #24241f;
+  --popover: #ffffff;
+  --popover-foreground: #24241f;
+  --primary: #f0a11b;
+  --primary-foreground: #2a1d02;
+  --secondary: #efefed;
+  --secondary-foreground: #45453f;
+  --muted: #f1f1ef;
+  --muted-foreground: #74746e;
+  --accent: #fdf1dd;
+  --accent-foreground: #8a5c05;
+  --destructive: #d94a3d;
+  --border: #e4e4e1;
+  --input: #dededa;
+  --ring: #f0a11b;
+  --chart-1: #f0a11b;
+  --chart-2: #575756;
+  --chart-3: #f8c46a;
+  --chart-4: #9a9a97;
+  --chart-5: #b97a06;
+  --radius: 1rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #24241f;
+  --sidebar-primary: #f0a11b;
+  --sidebar-primary-foreground: #2a1d02;
+  --sidebar-accent: #f1f1ef;
+  --sidebar-accent-foreground: #24241f;
+  --sidebar-border: #e4e4e1;
+  --sidebar-ring: #f0a11b;
+}
+
+.dark {
+  --background: #1b1b1a;
+  --foreground: #eeeeea;
+  --card: #242423;
+  --card-foreground: #eeeeea;
+  --popover: #242423;
+  --popover-foreground: #eeeeea;
+  --primary: #f0a11b;
+  --primary-foreground: #2a1d02;
+  --secondary: #2e2e2c;
+  --secondary-foreground: #eeeeea;
+  --muted: #2e2e2c;
+  --muted-foreground: #a3a39d;
+  --accent: #3a3125;
+  --accent-foreground: #f6c576;
+  --destructive: #e2685c;
+  --border: #ffffff1a;
+  --input: #ffffff26;
+  --ring: #f0a11b;
+  --chart-1: #f0a11b;
+  --chart-2: #b9b9b4;
+  --chart-3: #f8c46a;
+  --chart-4: #7d7d7a;
+  --chart-5: #d1870c;
+  --sidebar: #232324;
+  --sidebar-foreground: #e7e7e4;
+  --sidebar-primary: #f0a11b;
+  --sidebar-primary-foreground: #2a1d02;
+  --sidebar-accent: #323234;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #ffffff1a;
+  --sidebar-ring: #f0a11b;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@layer utilities {
+  /* Тонкая рамка-подложка для карточек аналитики */
+  .stat-card {
+    @apply bg-card rounded-xl border p-4 shadow-xs;
+  }
+}
