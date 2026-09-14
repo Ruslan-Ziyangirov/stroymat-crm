@@ -51,7 +51,10 @@ export async function uploadReport(formData: FormData): Promise<MutationResult> 
     }
 
     // Файл кладём в Storage — чтобы всегда можно было вернуться к оригиналу.
-    const path = `${profile.id}/${upload.id}-${file.name}`;
+    // Ключ объекта должен быть ASCII — оригинальное имя (в т.ч. кириллица)
+    // хранится отдельно в file_name и показывается в интерфейсе.
+    const ext = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")) : "";
+    const path = `${profile.id}/${upload.id}${ext}`;
     const { error: storageError } = await supabase.storage
       .from("reports")
       .upload(path, file, { upsert: true, contentType: file.type || undefined });

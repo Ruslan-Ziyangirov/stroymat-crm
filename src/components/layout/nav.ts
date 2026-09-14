@@ -11,6 +11,7 @@ import {
   Target,
   Users,
   UsersRound,
+  Wallet,
 } from "lucide-react";
 import type { UserRole } from "@/lib/types";
 
@@ -61,6 +62,12 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/plans",
         label: "Планы продаж",
         icon: Target,
+        roles: ["admin", "director"],
+      },
+      {
+        href: "/finance",
+        label: "Финансы",
+        icon: Wallet,
         roles: ["admin", "director"],
       },
     ],

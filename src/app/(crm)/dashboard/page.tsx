@@ -10,12 +10,14 @@ import {
   TriangleAlert,
   Trophy,
   UserRound,
+  Wallet,
 } from "lucide-react";
 
 import { PageHeader } from "@/components/common/page-header";
 import { StatCard } from "@/components/common/stat-card";
 import { OrderStatusBadge } from "@/components/common/badges";
 import { OrderFunnelChart, RevenueChart, StatusDonut } from "@/components/charts/monthly-charts";
+import { CashFlowChart } from "@/components/charts/finance-charts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -31,6 +33,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireProfile, isPrivileged } from "@/lib/auth";
 import { fetchOrderSlices, toMonthlyPoints, byStatus } from "@/lib/queries/stats";
 import { getStores, getManagers, getMonthlyPlans, currentMonthISO } from "@/lib/queries/refs";
+import { getFinanceDashboardSummary } from "@/lib/queries/finance";
 import { buildMonthlyInsights, comparePeriods } from "@/lib/analytics/insights";
 import {
   storeRanking,
@@ -195,13 +198,17 @@ export default async function DashboardPage() {
   const churn = churnCandidates(orders);
   const clientIds = [...new Set(orders.map((o) => o.client_id))];
 
-  const [clientsCount, clientsInfoRes, plans] = await Promise.all([
+  const [clientsCount, clientsInfoRes, plans, finance] = await Promise.all([
     supabase.from("clients").select("id", { count: "exact", head: true }),
     clientIds.length
       ? supabase.from("clients").select("id, name, created_at").in("id", clientIds)
       : Promise.resolve({ data: [] as { id: string; name: string; created_at: string }[] }),
     getMonthlyPlans(currentMonthISO()),
+    getFinanceDashboardSummary(),
   ]);
+
+  const lastCashFlowMonth = finance.cashFlow[finance.cashFlow.length - 1];
+  const lastFinanceYear = finance.statements[finance.statements.length - 1];
 
   const companyPlan = plans.find((p) => p.store_id === null)?.target_amount ?? null;
   const storePlanMap = new Map(
@@ -393,6 +400,63 @@ export default async function DashboardPage() {
                 В этом месяце заказов ещё не было.
               </p>
             )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-3">
+        <Card className="xl:col-span-2">
+          <CardHeader className="flex-row items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Wallet className="text-primary size-4" />
+              <CardTitle>Финансы</CardTitle>
+            </div>
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/finance">
+                Подробнее <ArrowRight className="size-4" />
+              </Link>
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {finance.cashFlow.length ? (
+              <CashFlowChart data={finance.cashFlow.slice(-12)} />
+            ) : (
+              <p className="text-muted-foreground py-12 text-center text-sm">
+                Загрузите отчёты в разделе «Финансы», чтобы увидеть динамику.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Итоги</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-xl border p-3">
+              <p className="text-muted-foreground text-xs">
+                Чистый поток {lastCashFlowMonth ? `· ${formatDate(lastCashFlowMonth.month)}` : ""}
+              </p>
+              <p className="mt-1 text-xl font-bold tabular-nums">
+                {lastCashFlowMonth ? formatMoney(lastCashFlowMonth.net) : "—"}
+              </p>
+            </div>
+            <div className="rounded-xl border p-3">
+              <p className="text-muted-foreground text-xs">
+                Выручка за {lastFinanceYear ? `${lastFinanceYear.year} г.` : "год"}
+              </p>
+              <p className="mt-1 text-xl font-bold tabular-nums">
+                {lastFinanceYear?.revenue != null ? formatMoney(lastFinanceYear.revenue * 1000) : "—"}
+              </p>
+            </div>
+            <div className="rounded-xl border p-3">
+              <p className="text-muted-foreground text-xs">
+                Чистая прибыль за {lastFinanceYear ? `${lastFinanceYear.year} г.` : "год"}
+              </p>
+              <p className="mt-1 text-xl font-bold tabular-nums">
+                {lastFinanceYear?.netProfit != null ? formatMoney(lastFinanceYear.netProfit * 1000) : "—"}
+              </p>
+            </div>
           </CardContent>
         </Card>
       </div>

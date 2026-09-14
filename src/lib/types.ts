@@ -250,6 +250,55 @@ export interface MonthlyPlan {
   store?: Pick<Store, "id" | "name"> | null;
 }
 
+export type FinanceUploadKind = "cash_flow_51" | "financial_statement";
+
+export interface FinanceUploadSummary {
+  openingBalance?: number | null;
+  closingBalance?: number | null;
+  turnoverDebit?: number | null;
+  turnoverCredit?: number | null;
+  turnoverMismatch?: boolean;
+  orgName?: string | null;
+  inn?: string | null;
+}
+
+export interface FinanceUpload {
+  id: string;
+  kind: FinanceUploadKind;
+  file_name: string;
+  file_path: string | null;
+  period_month: string | null;
+  period_year: number | null;
+  status: UploadStatus;
+  rows_count: number;
+  summary: FinanceUploadSummary;
+  error: string | null;
+  uploaded_by: string | null;
+  created_at: string;
+}
+
+export interface FinanceCashFlowRow {
+  id: string;
+  upload_id: string;
+  period_month: string;
+  corr_account: string | null;
+  debit: number | null;
+  credit: number | null;
+  comment: string | null;
+  raw: Record<string, unknown>;
+}
+
+export interface FinanceStatementLine {
+  id: string;
+  upload_id: string;
+  period_year: number;
+  statement_type: "balance" | "income";
+  code: string;
+  label: string;
+  value: number | null;
+  position: number;
+}
+
 export interface MonthlyStat {
   month: string;
   store_id: string | null;
