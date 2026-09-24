@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 
 import { PageHeader } from "@/components/common/page-header";
-import { ClientsTable, type ClientRow } from "@/components/clients/clients-table";
+import { ClientCards, type ClientCardRow } from "@/components/clients/client-cards";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth";
@@ -18,37 +18,30 @@ export default async function ClientsPage() {
   const [clientsRes, ordersRes] = await Promise.all([
     supabase
       .from("clients")
-      .select("*, manager:profiles(id, full_name), store:stores(id, name)")
+      .select("*, manager:profiles!clients_manager_id_fkey(id, full_name), store:stores(id, name)")
       .order("created_at", { ascending: false }),
-    supabase.from("orders").select("client_id, total, status"),
+    supabase.from("orders").select("client_id, total, stage"),
   ]);
 
   const clients = (clientsRes.data ?? []) as unknown as Client[];
-  const orders = (ordersRes.data ?? []) as {
-    client_id: string;
-    total: number;
-    status: string;
-  }[];
+  const orders = (ordersRes.data ?? []) as { client_id: string; total: number; stage: string }[];
 
   const totals = new Map<string, { count: number; sum: number }>();
   for (const order of orders) {
-    if (order.status === "cancelled") continue;
+    if (order.stage === "closed_lost") continue;
     const bucket = totals.get(order.client_id) ?? { count: 0, sum: 0 };
     bucket.count += 1;
     bucket.sum += Number(order.total ?? 0);
     totals.set(order.client_id, bucket);
   }
 
-  const rows: ClientRow[] = clients.map((client) => ({
+  const rows: ClientCardRow[] = clients.map((client) => ({
     id: client.id,
     name: client.name,
     type: client.type,
-    status: client.status,
     phone: client.phone,
-    email: client.email,
-    manager: client.manager?.full_name ?? "Не назначен",
-    store: client.store?.name ?? "—",
-    bonus_balance: Number(client.bonus_balance ?? 0),
+    manager_name: client.manager?.full_name ?? null,
+    store_name: client.store?.name ?? null,
     orders_count: totals.get(client.id)?.count ?? 0,
     orders_total: totals.get(client.id)?.sum ?? 0,
   }));
@@ -57,7 +50,7 @@ export default async function ClientsPage() {
     <>
       <PageHeader
         title="Клиенты"
-        description={`В базе ${clients.length} карточек. Нажмите на строку, чтобы открыть карточку клиента.`}
+        description={`В базе ${clients.length} карточек.`}
         actions={
           <Button asChild>
             <Link href="/clients/new">
@@ -67,7 +60,7 @@ export default async function ClientsPage() {
           </Button>
         }
       />
-      <ClientsTable data={rows} />
+      <ClientCards data={rows} />
     </>
   );
 }

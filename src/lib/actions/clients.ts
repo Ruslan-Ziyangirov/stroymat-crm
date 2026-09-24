@@ -70,7 +70,7 @@ export async function deleteClientRecord(id: string): Promise<MutationResult> {
     return {
       ok: false,
       error: error.message.includes("violates foreign key")
-        ? "Нельзя удалить клиента с заказами. Переведите его в статус «Неактивный»."
+        ? "Нельзя удалить клиента с заказами."
         : error.message,
     };
   }

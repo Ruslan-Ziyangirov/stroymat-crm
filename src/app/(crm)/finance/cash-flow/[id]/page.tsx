@@ -7,7 +7,7 @@ import { StatCard } from "@/components/common/stat-card";
 import { DeleteFinanceUploadButton } from "@/components/reports/delete-finance-upload-button";
 import { RankBarChart } from "@/components/charts/monthly-charts";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -22,7 +22,7 @@ import { cashFlowByCategory } from "@/lib/analytics/finance";
 import { formatDateTime, formatMoney, formatMonth, formatNumber } from "@/lib/format";
 import type { FinanceCashFlowRow, FinanceUpload } from "@/lib/types";
 
-export const metadata: Metadata = { title: "Анализ счёта 51" };
+export const metadata: Metadata = { title: "Отчёт за месяц" };
 
 export default async function CashFlowUploadPage({
   params,
@@ -90,6 +90,7 @@ export default async function CashFlowUploadPage({
         <Card>
           <CardHeader>
             <CardTitle>Приток по статьям</CardTitle>
+            <CardDescription>Поступления за этот месяц по укрупнённым статьям.</CardDescription>
           </CardHeader>
           <CardContent>
             {inflow.length ? (
@@ -107,6 +108,7 @@ export default async function CashFlowUploadPage({
         <Card>
           <CardHeader>
             <CardTitle>Отток по статьям</CardTitle>
+            <CardDescription>Списания за этот месяц по укрупнённым статьям.</CardDescription>
           </CardHeader>
           <CardContent>
             {outflow.length ? (

@@ -15,7 +15,7 @@ import {
 
 import { PageHeader } from "@/components/common/page-header";
 import { StatCard } from "@/components/common/stat-card";
-import { OrderStatusBadge } from "@/components/common/badges";
+import { DealStageBadge } from "@/components/common/badges";
 import { OrderFunnelChart, RevenueChart, StatusDonut } from "@/components/charts/monthly-charts";
 import { CashFlowChart } from "@/components/charts/finance-charts";
 import { Button } from "@/components/ui/button";
@@ -31,22 +31,23 @@ import {
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile, isPrivileged } from "@/lib/auth";
-import { fetchOrderSlices, toMonthlyPoints, byStatus } from "@/lib/queries/stats";
+import { fetchOrderSlices, toMonthlyPoints, byStage } from "@/lib/queries/stats";
 import { getStores, getManagers, getMonthlyPlans, currentMonthISO } from "@/lib/queries/refs";
 import { getFinanceDashboardSummary } from "@/lib/queries/finance";
 import { buildMonthlyInsights, comparePeriods } from "@/lib/analytics/insights";
 import {
   storeRanking,
   managerRanking,
-  orderFunnel,
+  stageFunnel,
   newVsReturning,
   churnCandidates,
   type RankRow,
 } from "@/lib/analytics/dashboard";
+import { dealHealth } from "@/lib/analytics/pipeline";
 import { formatMoney, formatNumber, formatDate, formatPercent, daysSince } from "@/lib/format";
-import { ORDER_STATUS_LABELS } from "@/lib/constants";
+import { ACTIVE_DEAL_STAGES, DEAL_STAGE_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import type { Order, OrderStatus } from "@/lib/types";
+import type { DealStage, Order } from "@/lib/types";
 
 function GrowthBadge({ value }: { value: number | null }) {
   if (value === null) {
@@ -74,10 +75,10 @@ export default async function DashboardPage() {
   const supabase = await createClient();
   const privileged = isPrivileged(profile);
 
-  const [latest, orders, stores, managers, stuckOrders] = await Promise.all([
+  const [latest, orders, stores, managers, activeOrdersRes, openTasksRes] = await Promise.all([
     supabase
       .from("orders")
-      .select("id, number, status, total, created_at, client:clients(id, name)")
+      .select("id, number, stage, total, created_at, client:clients(id, name)")
       .order("created_at", { ascending: false })
       .limit(8),
     privileged ? fetchOrderSlices(12) : Promise.resolve([]),
@@ -86,11 +87,16 @@ export default async function DashboardPage() {
     privileged
       ? supabase
           .from("orders")
-          .select("id, number, status, total, created_at, client:clients(id, name), store:stores(id, name)")
-          .in("status", ["new", "confirmed"])
-          .order("created_at", { ascending: true })
-          .limit(8)
-      : Promise.resolve({ data: [] as Order[] }),
+          .select(
+            "id, number, stage, stage_changed_at, total, created_at, client:clients(id, name), store:stores(id, name)",
+          )
+          .in("stage", ACTIVE_DEAL_STAGES)
+          .order("stage_changed_at", { ascending: true })
+          .limit(200)
+      : Promise.resolve({ data: [] as (Order & { stage_changed_at: string })[] }),
+    privileged
+      ? supabase.from("deal_tasks").select("order_id, due_at").eq("status", "open")
+      : Promise.resolve({ data: [] as { order_id: string; due_at: string }[] }),
   ]);
 
   const recent = (latest.data ?? []) as unknown as Order[];
@@ -176,7 +182,7 @@ export default async function DashboardPage() {
                           {order.number} · {formatDate(order.created_at)}
                         </p>
                       </div>
-                      <OrderStatusBadge status={order.status} />
+                      <DealStageBadge stage={order.stage} />
                       <span className="w-28 text-right text-sm font-semibold tabular-nums">
                         {formatMoney(order.total)}
                       </span>
@@ -223,33 +229,40 @@ export default async function DashboardPage() {
   const points = toMonthlyPoints(orders, 12);
   const comparison = comparePeriods(points);
   const insights = buildMonthlyInsights(points);
-  const statuses = byStatus(orders);
+  const stages = byStage(orders);
 
-  const donut = [...statuses.entries()].map(([status, value]) => ({
-    name: ORDER_STATUS_LABELS[status as OrderStatus],
+  const donut = [...stages.entries()].map(([stage, value]) => ({
+    name: DEAL_STAGE_LABELS[stage as DealStage],
     value,
   }));
 
   const current = comparison?.current;
   const storeRank = storeRanking(orders, stores);
   const managerRank = managerRanking(orders, managers);
-  const funnel = orderFunnel(orders);
+  const funnel = stageFunnel(orders);
   const { newCount, returningCount } = newVsReturning(orders, clientCreatedAt);
   const churnRows = churn.map((c) => ({ ...c, name: clientInfo.get(c.clientId)?.name ?? "Клиент" }));
-  const stuck = (stuckOrders.data ?? []) as unknown as Order[];
+
+  // Сделки без задачи / с просроченной задачей / долго на этапе — то, что
+  // методология просит «быстро увидеть», теперь считаем по всем активным
+  // заказам, а не по узкому набору статусов.
+  const openDueByOrder = new Map<string, string>();
+  for (const t of openTasksRes.data ?? []) {
+    if (!openDueByOrder.has(t.order_id)) openDueByOrder.set(t.order_id, t.due_at);
+  }
+  const now = new Date();
+  const stuck = ((activeOrdersRes.data ?? []) as unknown as (Order & { stage_changed_at: string })[])
+    .filter((o) => {
+      const health = dealHealth(o.stage, o.stage_changed_at, openDueByOrder.get(o.id) ?? null, now);
+      return health.noTask || health.overdue || health.stuck;
+    })
+    .slice(0, 8);
 
   return (
     <>
       <PageHeader
         title={`Здравствуйте, ${profile.full_name.split(" ")[0] || "коллега"}`}
         description="Сводка по текущему месяцу и динамика за последние 12 месяцев."
-        actions={
-          <Button asChild variant="outline">
-            <Link href="/reports">
-              Полная отчётность <ArrowRight className="size-4" />
-            </Link>
-          </Button>
-        }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -288,7 +301,7 @@ export default async function DashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Заказы по статусам</CardTitle>
+            <CardTitle>Заказы по этапам воронки</CardTitle>
           </CardHeader>
           <CardContent>
             {donut.length ? (
@@ -376,28 +389,29 @@ export default async function DashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Воронка заказов</CardTitle>
+            <CardTitle>Воронка сделок</CardTitle>
           </CardHeader>
           <CardContent>
             {funnel.created ? (
               <OrderFunnelChart
                 data={[
                   { name: "Оформлено", value: funnel.created },
+                  { name: "В работе", value: funnel.inProgress },
                   {
-                    name: "Оплачено",
-                    value: funnel.paid,
-                    hint: `${(funnel.paidRate ?? 0).toFixed(0)} %`,
-                  },
-                  {
-                    name: "Завершено",
-                    value: funnel.completed,
-                    hint: `${(funnel.completedRate ?? 0).toFixed(0)} %`,
+                    name: "Продано",
+                    value: funnel.won,
+                    hint: `${(funnel.wonRate ?? 0).toFixed(0)} %`,
                   },
                 ]}
               />
             ) : (
               <p className="text-muted-foreground py-12 text-center text-sm">
-                В этом месяце заказов ещё не было.
+                В этом месяце сделок ещё не было.
+              </p>
+            )}
+            {funnel.rejected > 0 && (
+              <p className="text-muted-foreground mt-2 text-center text-xs">
+                Ещё {formatNumber(funnel.rejected)} — условный отказ или не реализовано
               </p>
             )}
           </CardContent>
@@ -433,7 +447,7 @@ export default async function DashboardPage() {
             <CardTitle>Итоги</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="rounded-xl border p-3">
+            <div className="rounded-xl bg-muted/50 p-3">
               <p className="text-muted-foreground text-xs">
                 Чистый поток {lastCashFlowMonth ? `· ${formatDate(lastCashFlowMonth.month)}` : ""}
               </p>
@@ -441,7 +455,7 @@ export default async function DashboardPage() {
                 {lastCashFlowMonth ? formatMoney(lastCashFlowMonth.net) : "—"}
               </p>
             </div>
-            <div className="rounded-xl border p-3">
+            <div className="rounded-xl bg-muted/50 p-3">
               <p className="text-muted-foreground text-xs">
                 Выручка за {lastFinanceYear ? `${lastFinanceYear.year} г.` : "год"}
               </p>
@@ -449,7 +463,7 @@ export default async function DashboardPage() {
                 {lastFinanceYear?.revenue != null ? formatMoney(lastFinanceYear.revenue * 1000) : "—"}
               </p>
             </div>
-            <div className="rounded-xl border p-3">
+            <div className="rounded-xl bg-muted/50 p-3">
               <p className="text-muted-foreground text-xs">
                 Чистая прибыль за {lastFinanceYear ? `${lastFinanceYear.year} г.` : "год"}
               </p>
@@ -512,11 +526,11 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl border p-3">
+              <div className="rounded-xl bg-muted/50 p-3">
                 <p className="text-muted-foreground text-xs">Новые в этом месяце</p>
                 <p className="mt-1 text-xl font-bold tabular-nums">{formatNumber(newCount)}</p>
               </div>
-              <div className="rounded-xl border p-3">
+              <div className="rounded-xl bg-muted/50 p-3">
                 <p className="text-muted-foreground text-xs">Повторные покупки</p>
                 <p className="mt-1 text-xl font-bold tabular-nums">{formatNumber(returningCount)}</p>
               </div>
@@ -550,7 +564,7 @@ export default async function DashboardPage() {
       <Card className="mt-4">
         <CardHeader className="flex-row items-center gap-2">
           <TriangleAlert className="size-4 text-amber-600" />
-          <CardTitle>Заказы без движения</CardTitle>
+          <CardTitle>Сделки, требующие внимания</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           {stuck.length ? (
@@ -560,9 +574,8 @@ export default async function DashboardPage() {
                   <TableHead>Заказ</TableHead>
                   <TableHead>Клиент</TableHead>
                   <TableHead>Магазин</TableHead>
-                  <TableHead>Статус</TableHead>
-                  <TableHead className="text-right">Создан</TableHead>
-                  <TableHead className="text-right">Дней без движения</TableHead>
+                  <TableHead>Этап</TableHead>
+                  <TableHead className="text-right">На этапе</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -576,11 +589,10 @@ export default async function DashboardPage() {
                     <TableCell>{order.client?.name ?? "Клиент удалён"}</TableCell>
                     <TableCell>{order.store?.name ?? "—"}</TableCell>
                     <TableCell>
-                      <OrderStatusBadge status={order.status} />
+                      <DealStageBadge stage={order.stage} />
                     </TableCell>
-                    <TableCell className="text-right">{formatDate(order.created_at)}</TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {daysSince(order.created_at)}
+                      {daysSince(order.stage_changed_at)} дн.
                     </TableCell>
                   </TableRow>
                 ))}
@@ -588,7 +600,8 @@ export default async function DashboardPage() {
             </Table>
           ) : (
             <p className="text-muted-foreground px-6 py-10 text-center text-sm">
-              Зависших заказов нет — все новые и подтверждённые заказы двигаются.
+              По всем активным сделкам есть задача, она не просрочена, и сделка не застряла на
+              этапе.
             </p>
           )}
         </CardContent>
@@ -619,7 +632,7 @@ export default async function DashboardPage() {
                           {order.number} · {formatDate(order.created_at)}
                         </p>
                       </div>
-                      <OrderStatusBadge status={order.status} />
+                      <DealStageBadge stage={order.stage} />
                       <span className="w-28 text-right text-sm font-semibold tabular-nums">
                         {formatMoney(order.total)}
                       </span>

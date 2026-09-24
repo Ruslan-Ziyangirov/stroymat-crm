@@ -1,5 +1,4 @@
 import type { OrderSlice } from "@/lib/queries/stats";
-import type { OrderStatus } from "@/lib/types";
 
 function monthBounds(monthsBack: number) {
   const now = new Date();
@@ -31,7 +30,7 @@ function rankByKey(
   const prev = new Map<string, { amount: number; orders: number }>();
 
   for (const o of orders) {
-    if (o.status === "cancelled") continue;
+    if (o.stage === "closed_lost") continue;
     const key = keyOf(o) ?? "none";
     const date = new Date(o.created_at);
     const bucket =
@@ -74,35 +73,38 @@ export function managerRanking(
   return rankByKey(orders, (o) => o.manager_id, names, "Без менеджера").filter((r) => r.id !== "none");
 }
 
-export interface FunnelResult {
+export interface StageFunnelResult {
+  /** Сделок заведено в этом месяце. */
   created: number;
-  paid: number;
-  completed: number;
-  /** % заказов, дошедших минимум до оплаты. */
-  paidRate: number | null;
-  /** % заказов, дошедших до завершения. */
-  completedRate: number | null;
+  /** Из них всё ещё в работе (не продано и не отклонено). */
+  inProgress: number;
+  /** Из них уже продано. */
+  won: number;
+  /** % сделок этого месяца, дошедших до продажи. */
+  wonRate: number | null;
+  /** Условный отказ или закрыто и не реализовано. */
+  rejected: number;
 }
 
-const REACHED_PAID: OrderStatus[] = ["paid", "shipping", "completed"];
-
-/** Воронка «оформлен → оплачен → завершён» за текущий месяц. */
-export function orderFunnel(orders: OrderSlice[]): FunnelResult {
+/** Воронка «оформлено → в работе → продано» по сделкам, заведённым в этом месяце. */
+export function stageFunnel(orders: OrderSlice[]): StageFunnelResult {
   const { start, end } = monthBounds(0);
-  const active = orders.filter((o) => {
-    if (o.status === "cancelled") return false;
+  const cohort = orders.filter((o) => {
     const d = new Date(o.created_at);
     return d >= start && d < end;
   });
-  const created = active.length;
-  const paid = active.filter((o) => REACHED_PAID.includes(o.status)).length;
-  const completed = active.filter((o) => o.status === "completed").length;
+
+  const won = cohort.filter((o) => o.stage === "won").length;
+  const rejected = cohort.filter(
+    (o) => o.stage === "conditional_rejection" || o.stage === "closed_lost",
+  ).length;
+
   return {
-    created,
-    paid,
-    completed,
-    paidRate: created ? (paid / created) * 100 : null,
-    completedRate: created ? (completed / created) * 100 : null,
+    created: cohort.length,
+    inProgress: cohort.length - won - rejected,
+    won,
+    wonRate: cohort.length ? (won / cohort.length) * 100 : null,
+    rejected,
   };
 }
 
@@ -114,7 +116,7 @@ interface ClientOrderStat {
 function clientOrderStats(orders: OrderSlice[]): Map<string, ClientOrderStat> {
   const map = new Map<string, ClientOrderStat>();
   for (const o of orders) {
-    if (o.status === "cancelled") continue;
+    if (o.stage === "closed_lost") continue;
     const s = map.get(o.client_id);
     if (!s) {
       map.set(o.client_id, { ordersCount: 1, lastOrderAt: o.created_at });
@@ -134,7 +136,7 @@ export function newVsReturning(
   const { start, end } = monthBounds(0);
   const clientsThisMonth = new Set<string>();
   for (const o of orders) {
-    if (o.status === "cancelled") continue;
+    if (o.stage === "closed_lost") continue;
     const d = new Date(o.created_at);
     if (d >= start && d < end) clientsThisMonth.add(o.client_id);
   }

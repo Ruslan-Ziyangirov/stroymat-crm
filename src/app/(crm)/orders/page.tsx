@@ -1,93 +1,97 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { LayoutGrid, List, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 
 import { PageHeader } from "@/components/common/page-header";
-import { OrdersTable, type OrderRow } from "@/components/orders/orders-table";
-import { OrdersKanban } from "@/components/orders/orders-kanban";
+import { OrdersKanban, type PipelineOrderRow } from "@/components/orders/orders-kanban";
 import { StatCard } from "@/components/common/stat-card";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
-import { requireProfile } from "@/lib/auth";
+import { requireProfile, isPrivileged } from "@/lib/auth";
+import { getManagers } from "@/lib/queries/refs";
+import { ACTIVE_DEAL_STAGES } from "@/lib/constants";
 import { formatMoney, formatNumber } from "@/lib/format";
-import { cn } from "@/lib/utils";
-import type { Order } from "@/lib/types";
+import type { DealStage, DealTaskType } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Заказы" };
 
-export default async function OrdersPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ view?: string }>;
-}) {
-  await requireProfile();
-  const { view } = await searchParams;
-  const isBoard = view === "board";
+export default async function OrdersPage() {
+  const profile = await requireProfile();
+  const privileged = isPrivileged(profile);
   const supabase = await createClient();
 
-  const { data } = await supabase
-    .from("orders")
-    .select(
-      "id, number, status, total, created_at, client:clients(id, name), manager:profiles(id, full_name), store:stores(id, name), items:order_items(id)",
-    )
-    .order("created_at", { ascending: false });
+  const [ordersRes, tasksRes, settingsRes, managers] = await Promise.all([
+    supabase
+      .from("orders")
+      .select(
+        "id, number, total, comment, created_at, stage, stage_changed_at, manager_id, budget, priority, product_interest, urgency, deal_type, proposal_amount, rejection_reason, rejection_comment, client:clients(id, name, phone), manager:profiles!orders_manager_id_fkey(id, full_name)",
+      )
+      .order("stage_changed_at", { ascending: false }),
+    supabase
+      .from("deal_tasks")
+      .select("order_id, due_at, type, comment")
+      .eq("status", "open")
+      .order("due_at", { ascending: true }),
+    supabase.from("pipeline_settings").select("manager_active_deal_limit").eq("id", true).maybeSingle(),
+    getManagers(),
+  ]);
 
-  const orders = (data ?? []) as unknown as (Order & { items: { id: string }[] })[];
+  const orders = ordersRes.data ?? [];
+  const tasks = (tasksRes.data ?? []) as {
+    order_id: string;
+    due_at: string;
+    type: DealTaskType;
+    comment: string;
+  }[];
 
-  const rows: OrderRow[] = orders.map((order) => ({
-    id: order.id,
-    number: order.number,
-    client: order.client?.name ?? "—",
-    manager: order.manager?.full_name ?? "Не назначен",
-    store: order.store?.name ?? "—",
-    status: order.status,
-    total: Number(order.total ?? 0),
-    created_at: order.created_at,
-    items_count: order.items?.length ?? 0,
-  }));
+  const openTaskByOrder = new Map<string, { due_at: string; type: DealTaskType; comment: string }>();
+  for (const task of tasks) {
+    if (!openTaskByOrder.has(task.order_id)) openTaskByOrder.set(task.order_id, task);
+  }
 
-  const active = rows.filter(
-    (row) => row.status !== "completed" && row.status !== "cancelled",
-  );
-  const activeSum = active.reduce((sum, row) => sum + row.total, 0);
-  const completed = rows.filter((row) => row.status === "completed");
+  const rows: PipelineOrderRow[] = orders.map((o) => {
+    const client = o.client as unknown as { id: string; name: string; phone: string | null } | null;
+    return {
+      id: o.id,
+      number: o.number,
+      client_id: client?.id ?? null,
+      client_name: client?.name ?? "Клиент удалён",
+      client_phone: client?.phone ?? null,
+      total: Number(o.total ?? 0),
+      comment: o.comment,
+      created_at: o.created_at,
+      stage: o.stage,
+      stage_changed_at: o.stage_changed_at,
+      manager_id: o.manager_id,
+      manager_name: (o.manager as unknown as { full_name: string } | null)?.full_name ?? null,
+      budget: o.budget,
+      priority: o.priority,
+      product_interest: o.product_interest,
+      urgency: o.urgency,
+      deal_type: o.deal_type,
+      proposal_amount: o.proposal_amount,
+      rejection_reason: o.rejection_reason,
+      rejection_comment: o.rejection_comment,
+      openTask: openTaskByOrder.get(o.id) ?? null,
+    };
+  });
+
+  const active = rows.filter((r) => (ACTIVE_DEAL_STAGES as DealStage[]).includes(r.stage));
+  const activeSum = active.reduce((sum, r) => sum + r.total, 0);
+  const won = rows.filter((r) => r.stage === "won");
 
   return (
     <>
       <PageHeader
         title="Заказы"
-        description="Все заказы компании: состав, сумма, ответственный менеджер и статус."
+        description="Воронка сделок: перетащите карточку на другой этап или откройте её, чтобы поставить следующий шаг."
         actions={
-          <>
-            <div className="bg-muted flex items-center gap-1 rounded-full p-1">
-              <Link
-                href="/orders"
-                className={cn(
-                  "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
-                  !isBoard ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <List className="size-4" />
-                Список
-              </Link>
-              <Link
-                href="/orders?view=board"
-                className={cn(
-                  "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
-                  isBoard ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <LayoutGrid className="size-4" />
-                Канбан
-              </Link>
-            </div>
-            <Button asChild>
-              <Link href="/orders/new">
-                <Plus className="size-4" />
-                Новый заказ
-              </Link>
-            </Button>
-          </>
+          <Button asChild>
+            <Link href="/orders/new">
+              <Plus className="size-4" />
+              Новый заказ
+            </Link>
+          </Button>
         }
       />
 
@@ -99,13 +103,19 @@ export default async function OrdersPage({
           hint={`на ${formatMoney(activeSum)}`}
         />
         <StatCard
-          label="Завершено"
-          value={formatNumber(completed.length)}
-          hint={`на ${formatMoney(completed.reduce((s, r) => s + r.total, 0))}`}
+          label="Продано"
+          value={formatNumber(won.length)}
+          hint={`на ${formatMoney(won.reduce((s, r) => s + r.total, 0))}`}
         />
       </div>
 
-      {isBoard ? <OrdersKanban data={rows} /> : <OrdersTable data={rows} />}
+      <OrdersKanban
+        orders={rows}
+        managers={managers}
+        currentUserId={profile.id}
+        privileged={privileged}
+        managerDealLimit={settingsRes.data?.manager_active_deal_limit ?? 80}
+      />
     </>
   );
 }

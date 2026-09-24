@@ -1,43 +1,88 @@
 import type {
   BonusType,
-  ClientStatus,
   ClientType,
-  OrderStatus,
+  DealPriority,
+  DealStage,
+  DealTaskType,
+  DealType,
+  DealUrgency,
   UserRole,
 } from "@/lib/types";
 
-export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
-  new: "Новый",
-  confirmed: "Подтверждён",
-  paid: "Оплачен",
-  shipping: "В доставке",
-  completed: "Завершён",
-  cancelled: "Отменён",
+/** Этапы воронки продаж — порядок важен, это же порядок колонок канбана. */
+export const DEAL_STAGE_ORDER: DealStage[] = [
+  "new",
+  "contacted",
+  "proposal_sent",
+  "meeting_scheduled",
+  "won",
+  "conditional_rejection",
+  "closed_lost",
+];
+
+export const DEAL_STAGE_LABELS: Record<DealStage, string> = {
+  new: "Новый лид",
+  contacted: "Первый контакт",
+  proposal_sent: "КП отправлено",
+  meeting_scheduled: "Встреча назначена",
+  won: "Продажа",
+  conditional_rejection: "Условный отказ",
+  closed_lost: "Закрыто и не реализовано",
 };
 
-/** Классы бейджа для статуса заказа. */
-export const ORDER_STATUS_STYLES: Record<OrderStatus, string> = {
+export const DEAL_STAGE_STYLES: Record<DealStage, string> = {
   new: "bg-muted text-foreground border-border",
-  confirmed: "bg-sky-50 text-sky-700 border-sky-200",
-  paid: "bg-amber-50 text-amber-700 border-amber-200",
-  shipping: "bg-violet-50 text-violet-700 border-violet-200",
-  completed: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  cancelled: "bg-red-50 text-red-700 border-red-200",
+  contacted: "bg-sky-50 text-sky-700 border-sky-200",
+  proposal_sent: "bg-violet-50 text-violet-700 border-violet-200",
+  meeting_scheduled: "bg-amber-50 text-amber-700 border-amber-200",
+  won: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  conditional_rejection: "bg-orange-50 text-orange-700 border-orange-200",
+  closed_lost: "bg-red-50 text-red-700 border-red-200",
 };
 
-export const ORDER_STATUSES = Object.keys(ORDER_STATUS_LABELS) as OrderStatus[];
+/** Этапы, на которых сделка считается активной (учитывается в лимите менеджера). */
+export const ACTIVE_DEAL_STAGES: DealStage[] = DEAL_STAGE_ORDER.filter(
+  (s) => s !== "won" && s !== "closed_lost",
+);
 
-export const CLIENT_STATUS_LABELS: Record<ClientStatus, string> = {
-  lead: "Лид",
-  active: "Активный",
-  inactive: "Неактивный",
+export const DEAL_TASK_TYPE_LABELS: Record<DealTaskType, string> = {
+  call: "Звонок",
+  meeting: "Встреча",
+  email: "Письмо",
+  message: "Сообщение",
+  other: "Другое",
 };
 
-export const CLIENT_STATUS_STYLES: Record<ClientStatus, string> = {
-  lead: "bg-amber-50 text-amber-700 border-amber-200",
-  active: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  inactive: "bg-muted text-muted-foreground border-border",
+export const DEAL_PRIORITY_LABELS: Record<DealPriority, string> = {
+  A: "A — высокий",
+  B: "B — средний",
+  C: "C — низкий",
 };
+
+export const DEAL_PRIORITY_STYLES: Record<DealPriority, string> = {
+  A: "bg-red-50 text-red-700 border-red-200",
+  B: "bg-amber-50 text-amber-700 border-amber-200",
+  C: "bg-muted text-muted-foreground border-border",
+};
+
+export const DEAL_URGENCY_LABELS: Record<DealUrgency, string> = {
+  high: "Высокая",
+  medium: "Средняя",
+  low: "Низкая",
+};
+
+export const DEAL_TYPE_LABELS: Record<DealType, string> = {
+  new: "Первичная",
+  repeat: "Повторная",
+};
+
+export const REJECTION_REASONS = [
+  "Дорого / нет бюджета",
+  "Выбрал конкурента",
+  "Не актуально / нет потребности",
+  "Не отвечает / пропал",
+  "Другое",
+];
 
 export const CLIENT_TYPE_LABELS: Record<ClientType, string> = {
   individual: "Физлицо",

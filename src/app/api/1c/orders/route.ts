@@ -9,9 +9,6 @@ const incomingOrder = z.object({
   external_1c_id: z.string().min(1),
   client_external_id: z.string().min(1),
   number: z.string().optional(),
-  status: z
-    .enum(["new", "confirmed", "paid", "shipping", "completed", "cancelled"])
-    .optional(),
   created_at: z.string().optional(),
   discount_percent: z.number().min(0).max(50).optional(),
   comment: z.string().optional().nullable(),
@@ -39,18 +36,16 @@ export async function GET(request: Request) {
 
   const params = new URL(request.url).searchParams;
   const since = params.get("since");
-  const status = params.get("status");
 
   let query = admin
     .from("orders")
     .select(
-      "id, external_1c_id, number, status, total, items_total, discount_percent, bonus_used, bonus_earned, created_at, updated_at, client:clients(id, external_1c_id, name, inn), items:order_items(name, unit, quantity, price, amount)",
+      "id, external_1c_id, number, total, items_total, discount_percent, bonus_used, bonus_earned, created_at, updated_at, client:clients(id, external_1c_id, name, inn), items:order_items(name, unit, quantity, price, amount)",
     )
     .order("updated_at", { ascending: false })
     .limit(500);
 
   if (since) query = query.gte("updated_at", since);
-  if (status) query = query.eq("status", status);
 
   const { data, error } = await query;
 
@@ -121,7 +116,6 @@ export async function POST(request: Request) {
         {
           external_1c_id: order.external_1c_id,
           client_id: client.id,
-          status: order.status ?? "new",
           discount_percent: order.discount_percent ?? 0,
           comment: order.comment ?? null,
           ...(order.number ? { number: order.number } : {}),

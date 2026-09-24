@@ -13,19 +13,19 @@ export default async function StoresPage() {
 
   const [storesRes, ordersRes] = await Promise.all([
     supabase.from("stores").select("*").order("name"),
-    supabase.from("orders").select("store_id, total, status"),
+    supabase.from("orders").select("store_id, total, stage"),
   ]);
 
   const stores = (storesRes.data ?? []) as Store[];
   const orders = (ordersRes.data ?? []) as {
     store_id: string | null;
     total: number;
-    status: string;
+    stage: string;
   }[];
 
   const totals = new Map<string, { count: number; sum: number }>();
   for (const order of orders) {
-    if (!order.store_id || order.status === "cancelled") continue;
+    if (!order.store_id || order.stage === "closed_lost") continue;
     const bucket = totals.get(order.store_id) ?? { count: 0, sum: 0 };
     bucket.count += 1;
     bucket.sum += Number(order.total ?? 0);

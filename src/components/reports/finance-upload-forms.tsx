@@ -36,7 +36,7 @@ export function CashFlowUploadForm() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Анализ счёта 51 (помесячно)</CardTitle>
+        <CardTitle>Отчёт за месяц</CardTitle>
       </CardHeader>
       <CardContent>
         <form ref={formRef} onSubmit={onSubmit} className="flex flex-wrap items-end gap-4">

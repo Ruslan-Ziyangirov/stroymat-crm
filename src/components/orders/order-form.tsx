@@ -26,14 +26,14 @@ import {
   type QuickClient,
 } from "@/components/clients/quick-add-client-dialog";
 import { createOrder, updateOrder } from "@/lib/actions/orders";
-import { ORDER_STATUS_LABELS, UNITS } from "@/lib/constants";
+import { UNITS } from "@/lib/constants";
 import { formatMoney } from "@/lib/format";
 import {
   orderSchema,
   type OrderFormValues,
   type OrderInput,
 } from "@/lib/validations";
-import type { Order, OrderStatus, Product, Profile, Store } from "@/lib/types";
+import type { Order, Product, Profile, Store } from "@/lib/types";
 
 const NONE = "__none__";
 const NEW_CLIENT = "__new_client__";
@@ -72,7 +72,6 @@ export function OrderForm({
       client_id: order?.client_id ?? defaultClientId ?? "",
       manager_id: order?.manager_id ?? undefined,
       store_id: order?.store_id ?? undefined,
-      status: order?.status ?? "new",
       discount_percent: order?.discount_percent ?? 0,
       bonus_used: order?.bonus_used ?? 0,
       delivery_address: order?.delivery_address ?? undefined,
@@ -183,29 +182,6 @@ export function OrderForm({
                           {client.name}
                         </SelectItem>
                       ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-            </Field>
-
-            <Field label="Статус" error={errors.status?.message}>
-              <Controller
-                control={control}
-                name="status"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(Object.entries(ORDER_STATUS_LABELS) as [OrderStatus, string][]).map(
-                        ([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ),
-                      )}
                     </SelectContent>
                   </Select>
                 )}
@@ -347,7 +323,7 @@ export function OrderForm({
                 </dd>
               </div>
               <p className="text-muted-foreground text-xs">
-                Бонусов будет начислено при завершении: {formatMoney(total * 0.01)}
+                Бонусов будет начислено при переходе сделки на этап «Продажа»: {formatMoney(total * 0.01)}
               </p>
             </dl>
           </CardContent>

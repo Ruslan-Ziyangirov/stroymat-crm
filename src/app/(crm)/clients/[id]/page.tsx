@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 
 import { PageHeader } from "@/components/common/page-header";
-import { ClientStatusBadge, OrderStatusBadge } from "@/components/common/badges";
+import { DealStageBadge } from "@/components/common/badges";
 import { AddEventForm } from "@/components/clients/add-event-form";
 import { DeleteClientButton } from "@/components/clients/delete-client-button";
 import { Button } from "@/components/ui/button";
@@ -39,12 +39,12 @@ export default async function ClientPage({
   const [clientRes, ordersRes, eventsRes] = await Promise.all([
     supabase
       .from("clients")
-      .select("*, manager:profiles(id, full_name), store:stores(id, name)")
+      .select("*, manager:profiles!clients_manager_id_fkey(id, full_name), store:stores(id, name)")
       .eq("id", id)
       .maybeSingle(),
     supabase
       .from("orders")
-      .select("id, number, status, total, created_at")
+      .select("id, number, stage, total, created_at")
       .eq("client_id", id)
       .order("created_at", { ascending: false }),
     supabase
@@ -61,8 +61,8 @@ export default async function ClientPage({
   const orders = (ordersRes.data ?? []) as unknown as Order[];
   const events = (eventsRes.data ?? []) as unknown as ClientEvent[];
 
-  const paidOrders = orders.filter((o) => o.status !== "cancelled");
-  const totalSum = paidOrders.reduce((s, o) => s + Number(o.total ?? 0), 0);
+  const realOrders = orders.filter((o) => o.stage !== "closed_lost");
+  const totalSum = realOrders.reduce((s, o) => s + Number(o.total ?? 0), 0);
   const lastOrder = orders[0];
 
   return (
@@ -92,9 +92,8 @@ export default async function ClientPage({
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Реквизиты */}
         <Card>
-          <CardHeader className="flex-row items-center justify-between">
+          <CardHeader>
             <CardTitle>Реквизиты</CardTitle>
-            <ClientStatusBadge status={client.status} />
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <InfoRow icon={<Phone className="size-4" />} value={client.phone} />
@@ -123,7 +122,7 @@ export default async function ClientPage({
             <Metric
               icon={<ReceiptText className="size-4" />}
               label="Заказов"
-              value={String(paidOrders.length)}
+              value={String(realOrders.length)}
             />
             <Metric
               icon={<ReceiptText className="size-4" />}
@@ -165,7 +164,7 @@ export default async function ClientPage({
                           {formatDate(order.created_at)}
                         </p>
                       </div>
-                      <OrderStatusBadge status={order.status} />
+                      <DealStageBadge stage={order.stage} />
                       <span className="w-28 text-right text-sm font-semibold tabular-nums">
                         {formatMoney(order.total)}
                       </span>

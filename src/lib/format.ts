@@ -102,3 +102,18 @@ export function formatCompactMoney(value: number) {
   if (abs >= 1_000) return `${Math.round(value / 1_000)} тыс`;
   return String(Math.round(value));
 }
+
+/** Значение для <input type="datetime-local"> в локальном (не UTC) времени. */
+export function toDatetimeLocalValue(value: string | Date) {
+  const d = typeof value === "string" ? new Date(value) : value;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Дедлайн «завтра в 10:00» — дефолт для быстро созданных задач/лидов. */
+export function tomorrowAt(hour: number, minute = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(hour, minute, 0, 0);
+  return d;
+}

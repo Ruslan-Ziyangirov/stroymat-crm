@@ -1,13 +1,18 @@
 export type UserRole = "admin" | "director" | "manager";
 export type ClientType = "individual" | "company";
-export type ClientStatus = "lead" | "active" | "inactive";
-export type OrderStatus =
+export type DealStage =
   | "new"
-  | "confirmed"
-  | "paid"
-  | "shipping"
-  | "completed"
-  | "cancelled";
+  | "contacted"
+  | "proposal_sent"
+  | "meeting_scheduled"
+  | "won"
+  | "conditional_rejection"
+  | "closed_lost";
+export type DealPriority = "A" | "B" | "C";
+export type DealUrgency = "high" | "medium" | "low";
+export type DealType = "new" | "repeat";
+export type DealTaskType = "call" | "meeting" | "email" | "message" | "other";
+export type DealTaskStatus = "open" | "done" | "cancelled";
 export type EventType =
   | "note"
   | "call"
@@ -58,7 +63,6 @@ export interface Client {
   id: string;
   name: string;
   type: ClientType;
-  status: ClientStatus;
   inn: string | null;
   phone: string | null;
   email: string | null;
@@ -74,6 +78,26 @@ export interface Client {
   updated_at: string;
   manager?: Pick<Profile, "id" | "full_name"> | null;
   store?: Pick<Store, "id" | "name"> | null;
+}
+
+export interface DealTask {
+  id: string;
+  order_id: string;
+  assignee_id: string | null;
+  type: DealTaskType;
+  due_at: string;
+  comment: string;
+  status: DealTaskStatus;
+  completed_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  assignee?: Pick<Profile, "id" | "full_name"> | null;
+}
+
+export interface PipelineSettings {
+  id: boolean;
+  manager_active_deal_limit: number;
+  updated_at: string;
 }
 
 export interface OrderItem {
@@ -94,7 +118,17 @@ export interface Order {
   client_id: string;
   manager_id: string | null;
   store_id: string | null;
-  status: OrderStatus;
+  stage: DealStage;
+  stage_changed_at: string;
+  budget: number | null;
+  priority: DealPriority | null;
+  product_interest: string | null;
+  urgency: DealUrgency | null;
+  deal_type: DealType | null;
+  proposal_amount: number | null;
+  meeting_at: string | null;
+  rejection_reason: string | null;
+  rejection_comment: string | null;
   items_total: number;
   discount_percent: number;
   bonus_used: number;

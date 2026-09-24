@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth";
 import { orderSchema } from "@/lib/validations";
+import { assertManagerCapacity } from "@/lib/pipeline/capacity";
 import type { MutationResult } from "@/lib/actions/clients";
-import type { OrderStatus } from "@/lib/types";
 
 /** Пересчёт итогов заказа на стороне БД (учитывает скидку и списанные бонусы). */
 async function recalc(orderId: string) {
@@ -22,12 +22,16 @@ export async function createOrder(values: unknown): Promise<MutationResult> {
   const profile = await requireProfile();
   const supabase = await createClient();
   const { items, ...order } = parsed.data;
+  const managerId = order.manager_id ?? profile.id;
+
+  const capacityError = await assertManagerCapacity(supabase, managerId);
+  if (capacityError) return { ok: false, error: capacityError };
 
   const { data: created, error } = await supabase
     .from("orders")
     .insert({
       ...order,
-      manager_id: order.manager_id ?? profile.id,
+      manager_id: managerId,
       store_id: order.store_id ?? profile.store_id,
       created_by: profile.id,
     })
@@ -70,6 +74,19 @@ export async function updateOrder(id: string, values: unknown): Promise<Mutation
   const supabase = await createClient();
   const { items, ...order } = parsed.data;
 
+  if (order.manager_id) {
+    const { data: existing } = await supabase
+      .from("orders")
+      .select("manager_id")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (existing && existing.manager_id !== order.manager_id) {
+      const capacityError = await assertManagerCapacity(supabase, order.manager_id, id);
+      if (capacityError) return { ok: false, error: capacityError };
+    }
+  }
+
   const { error } = await supabase
     .from("orders")
     .update({ ...order, updated_at: new Date().toISOString() })
@@ -98,26 +115,6 @@ export async function updateOrder(id: string, values: unknown): Promise<Mutation
   if (itemsError) return { ok: false, error: itemsError.message };
 
   await recalc(id);
-  revalidatePath("/orders");
-  revalidatePath(`/orders/${id}`);
-  revalidatePath("/dashboard");
-  return { ok: true, id };
-}
-
-export async function updateOrderStatus(
-  id: string,
-  status: OrderStatus,
-): Promise<MutationResult> {
-  await requireProfile();
-  const supabase = await createClient();
-
-  const { error } = await supabase
-    .from("orders")
-    .update({ status, updated_at: new Date().toISOString() })
-    .eq("id", id);
-
-  if (error) return { ok: false, error: error.message };
-
   revalidatePath("/orders");
   revalidatePath(`/orders/${id}`);
   revalidatePath("/dashboard");

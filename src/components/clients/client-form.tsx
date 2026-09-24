@@ -20,16 +20,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Field } from "@/components/common/field";
 import { createClientRecord, updateClientRecord } from "@/lib/actions/clients";
-import {
-  CLIENT_SOURCES,
-  CLIENT_STATUS_LABELS,
-  CLIENT_TYPE_LABELS,
-} from "@/lib/constants";
-import {
-  clientSchema,
-  type ClientFormValues,
-  type ClientInput,
-} from "@/lib/validations";
+import { CLIENT_SOURCES, CLIENT_TYPE_LABELS } from "@/lib/constants";
+import { clientSchema, type ClientFormValues, type ClientInput } from "@/lib/validations";
 import type { Client, Profile, Store } from "@/lib/types";
 
 const NONE = "__none__";
@@ -54,7 +46,6 @@ export function ClientForm({ client, stores, managers }: ClientFormProps) {
     defaultValues: {
       name: client?.name ?? "",
       type: client?.type ?? "company",
-      status: client?.status ?? "lead",
       inn: client?.inn ?? undefined,
       phone: client?.phone ?? undefined,
       email: client?.email ?? undefined,
@@ -107,27 +98,6 @@ export function ClientForm({ client, stores, managers }: ClientFormProps) {
                   </SelectTrigger>
                   <SelectContent>
                     {Object.entries(CLIENT_TYPE_LABELS).map(([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </Field>
-
-          <Field label="Статус" error={errors.status?.message}>
-            <Controller
-              control={control}
-              name="status"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(CLIENT_STATUS_LABELS).map(([value, label]) => (
                       <SelectItem key={value} value={value}>
                         {label}
                       </SelectItem>

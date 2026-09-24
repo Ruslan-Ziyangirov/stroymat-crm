@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import type { PeriodPoint } from "@/lib/analytics/insights";
-import type { OrderStatus } from "@/lib/types";
+import type { DealStage } from "@/lib/types";
 
 export interface OrderSlice {
   id: string;
@@ -9,7 +9,7 @@ export interface OrderSlice {
   client_id: string;
   store_id: string | null;
   manager_id: string | null;
-  status: OrderStatus;
+  stage: DealStage;
 }
 
 function monthKey(iso: string) {
@@ -28,7 +28,7 @@ export async function fetchOrderSlices(months = 12, storeId?: string) {
 
   let query = supabase
     .from("orders")
-    .select("id, created_at, total, client_id, store_id, manager_id, status")
+    .select("id, created_at, total, client_id, store_id, manager_id, stage")
     .gte("created_at", from.toISOString())
     .order("created_at", { ascending: true });
 
@@ -41,7 +41,7 @@ export async function fetchOrderSlices(months = 12, storeId?: string) {
 
 /**
  * Сворачивает заказы в помесячные показатели.
- * Отменённые заказы в выручку не попадают.
+ * Заказы, закрытые как нереализованные, в выручку не попадают.
  */
 export function toMonthlyPoints(orders: OrderSlice[], months = 12): PeriodPoint[] {
   const buckets = new Map<
@@ -64,7 +64,7 @@ export function toMonthlyPoints(orders: OrderSlice[], months = 12): PeriodPoint[
   }
 
   for (const order of orders) {
-    if (order.status === "cancelled") continue;
+    if (order.stage === "closed_lost") continue;
     const key = monthKey(order.created_at);
     const bucket = buckets.get(key);
     if (!bucket) continue;
@@ -96,7 +96,7 @@ export function byStore(
 
   const map = new Map<string, { amount: number; orders: number }>();
   for (const order of orders) {
-    if (order.status === "cancelled") continue;
+    if (order.stage === "closed_lost") continue;
     const date = new Date(order.created_at);
     if (monthsBack >= 0 && (date < start || date >= end)) continue;
     const key = order.store_id ?? "none";
@@ -115,11 +115,11 @@ export function byStore(
     .sort((a, b) => b.amount - a.amount);
 }
 
-/** Распределение заказов по статусам. */
-export function byStatus(orders: OrderSlice[]) {
-  const map = new Map<OrderStatus, number>();
+/** Распределение заказов по этапам воронки. */
+export function byStage(orders: OrderSlice[]) {
+  const map = new Map<DealStage, number>();
   for (const order of orders) {
-    map.set(order.status, (map.get(order.status) ?? 0) + 1);
+    map.set(order.stage, (map.get(order.stage) ?? 0) + 1);
   }
   return map;
 }

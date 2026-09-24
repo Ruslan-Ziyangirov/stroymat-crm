@@ -1,5 +1,4 @@
 import {
-  BarChart3,
   Boxes,
   Building2,
   FileSpreadsheet,
@@ -40,12 +39,6 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: "Аналитика",
     items: [
-      {
-        href: "/reports",
-        label: "Отчётность",
-        icon: BarChart3,
-        roles: ["admin", "director"],
-      },
       {
         href: "/uploads",
         label: "Загрузка отчётов",

@@ -70,7 +70,6 @@ export function QuickAddClientDialog({
       const result = await createClientRecord({
         name: values.name,
         type: values.type,
-        status: "lead",
         phone: values.phone || undefined,
         discount_percent: 0,
       });

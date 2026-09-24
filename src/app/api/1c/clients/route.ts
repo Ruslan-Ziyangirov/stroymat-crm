@@ -32,7 +32,7 @@ export async function GET(request: Request) {
   let query = admin
     .from("clients")
     .select(
-      "id, external_1c_id, name, type, status, inn, phone, email, address, discount_percent, bonus_balance, updated_at",
+      "id, external_1c_id, name, type, inn, phone, email, address, discount_percent, bonus_balance, updated_at",
     )
     .order("updated_at", { ascending: false })
     .limit(1000);

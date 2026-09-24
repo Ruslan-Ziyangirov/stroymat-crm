@@ -1,25 +1,20 @@
 import { Badge } from "@/components/ui/badge";
-import {
-  CLIENT_STATUS_LABELS,
-  CLIENT_STATUS_STYLES,
-  ORDER_STATUS_LABELS,
-  ORDER_STATUS_STYLES,
-} from "@/lib/constants";
-import type { ClientStatus, OrderStatus } from "@/lib/types";
+import { DEAL_PRIORITY_LABELS, DEAL_PRIORITY_STYLES, DEAL_STAGE_LABELS, DEAL_STAGE_STYLES } from "@/lib/constants";
+import type { DealPriority, DealStage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-export function OrderStatusBadge({ status }: { status: OrderStatus }) {
+export function DealStageBadge({ stage }: { stage: DealStage }) {
   return (
-    <Badge variant="outline" className={cn("font-medium", ORDER_STATUS_STYLES[status])}>
-      {ORDER_STATUS_LABELS[status]}
+    <Badge variant="outline" className={cn("font-medium", DEAL_STAGE_STYLES[stage])}>
+      {DEAL_STAGE_LABELS[stage]}
     </Badge>
   );
 }
 
-export function ClientStatusBadge({ status }: { status: ClientStatus }) {
+export function PriorityBadge({ priority }: { priority: DealPriority }) {
   return (
-    <Badge variant="outline" className={cn("font-medium", CLIENT_STATUS_STYLES[status])}>
-      {CLIENT_STATUS_LABELS[status]}
+    <Badge variant="outline" className={cn("font-medium", DEAL_PRIORITY_STYLES[priority])}>
+      {DEAL_PRIORITY_LABELS[priority]}
     </Badge>
   );
 }

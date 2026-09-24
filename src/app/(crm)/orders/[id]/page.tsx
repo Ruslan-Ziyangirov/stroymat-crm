@@ -4,10 +4,9 @@ import { notFound } from "next/navigation";
 import { Pencil } from "lucide-react";
 
 import { PageHeader } from "@/components/common/page-header";
-import {
-  DeleteOrderButton,
-  OrderStatusSelect,
-} from "@/components/orders/order-status-select";
+import { DeleteOrderButton } from "@/components/orders/delete-order-button";
+import { TaskList } from "@/components/orders/task-list";
+import { DealStageBadge } from "@/components/common/badges";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -20,10 +19,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase/server";
-import { requireProfile } from "@/lib/auth";
+import { requireProfile, isPrivileged } from "@/lib/auth";
+import { getManagers } from "@/lib/queries/refs";
 import { EVENT_TYPE_LABELS } from "@/lib/constants";
 import { formatDate, formatDateTime, formatMoney, formatNumber } from "@/lib/format";
-import type { ClientEvent, Order } from "@/lib/types";
+import type { ClientEvent, DealTask, Order } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Заказ" };
 
@@ -33,14 +33,14 @@ export default async function OrderPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  await requireProfile();
+  const profile = await requireProfile();
   const supabase = await createClient();
 
-  const [orderRes, eventsRes] = await Promise.all([
+  const [orderRes, eventsRes, tasksRes, managers] = await Promise.all([
     supabase
       .from("orders")
       .select(
-        "*, client:clients(id, name, phone, bonus_balance), manager:profiles(id, full_name), store:stores(id, name), items:order_items(*)",
+        "*, client:clients(id, name, phone, bonus_balance), manager:profiles!orders_manager_id_fkey(id, full_name), store:stores(id, name), items:order_items(*)",
       )
       .eq("id", id)
       .maybeSingle(),
@@ -49,6 +49,12 @@ export default async function OrderPage({
       .select("*, author:profiles(id, full_name)")
       .eq("order_id", id)
       .order("created_at", { ascending: false }),
+    supabase
+      .from("deal_tasks")
+      .select("*, assignee:profiles!deal_tasks_assignee_id_fkey(id, full_name)")
+      .eq("order_id", id)
+      .order("created_at", { ascending: false }),
+    getManagers(),
   ]);
 
   if (!orderRes.data) notFound();
@@ -56,6 +62,8 @@ export default async function OrderPage({
   const order = orderRes.data as unknown as Order;
   const items = (order.items ?? []).sort((a, b) => a.position - b.position);
   const events = (eventsRes.data ?? []) as unknown as ClientEvent[];
+  const tasks = (tasksRes.data ?? []) as unknown as DealTask[];
+  const openTask = tasks.find((t) => t.status === "open") ?? null;
 
   return (
     <>
@@ -64,7 +72,7 @@ export default async function OrderPage({
         description={`Создан ${formatDateTime(order.created_at)}${order.store?.name ? ` · ${order.store.name}` : ""}`}
         actions={
           <>
-            <OrderStatusSelect id={order.id} status={order.status} />
+            <DealStageBadge stage={order.stage} />
             <Button asChild variant="outline">
               <Link href={`/orders/${order.id}/edit`}>
                 <Pencil className="size-4" />
@@ -75,6 +83,39 @@ export default async function OrderPage({
           </>
         }
       />
+
+      <div className="mb-4">
+        <TaskList
+          order={{
+            id: order.id,
+            number: order.number,
+            name: `${order.client?.name ?? "Клиент удалён"} · ${order.number}`,
+            client_id: order.client?.id ?? null,
+            client_name: order.client?.name ?? "Клиент удалён",
+            client_phone: order.client?.phone ?? null,
+            total: order.total,
+            comment: order.comment,
+            created_at: order.created_at,
+            stage: order.stage,
+            manager_id: order.manager_id,
+            manager_name: order.manager?.full_name ?? null,
+            budget: order.budget,
+            priority: order.priority,
+            product_interest: order.product_interest,
+            urgency: order.urgency,
+            deal_type: order.deal_type,
+            proposal_amount: order.proposal_amount,
+            rejection_reason: order.rejection_reason,
+            rejection_comment: order.rejection_comment,
+            openTask: openTask
+              ? { due_at: openTask.due_at, type: openTask.type, comment: openTask.comment }
+              : null,
+          }}
+          tasks={tasks}
+          managers={managers}
+          canClose={isPrivileged(profile) && order.stage === "conditional_rejection"}
+        />
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">

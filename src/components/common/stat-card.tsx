@@ -18,7 +18,7 @@ export function StatCard({ label, value, delta, hint, invert }: StatCardProps) {
   const Icon = !hasDelta || neutral ? ArrowRight : delta! > 0 ? ArrowUpRight : ArrowDownRight;
 
   return (
-    <div className="bg-card rounded-2xl border p-4">
+    <div className="bg-card rounded-2xl p-4 shadow-sm">
       <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
         {label}
       </p>

@@ -32,7 +32,7 @@ const ENDPOINTS = [
   },
   {
     method: "GET",
-    path: "/api/1c/orders?since=…&status=completed",
+    path: "/api/1c/orders?since=…",
     description: "Выгрузка заказов с составом и суммами",
   },
   {
@@ -61,7 +61,6 @@ Content-Type: application/json
     {
       "external_1c_id": "00-000123",
       "client_external_id": "К-000045",
-      "status": "completed",
       "discount_percent": 3,
       "items": [
         { "name": "Цемент М500, 50 кг", "unit": "меш", "quantity": 40, "price": 620 }

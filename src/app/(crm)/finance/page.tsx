@@ -8,7 +8,7 @@ import { CashFlowUploadForm, StatementUploadForm } from "@/components/reports/fi
 import { CashFlowChart, YearlyBarChart } from "@/components/charts/finance-charts";
 import { RankBarChart } from "@/components/charts/monthly-charts";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -21,11 +21,12 @@ import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import {
   aggregateCashFlowByMonth,
-  buildFinanceInsights,
+  buildFinanceRecommendations,
   cashFlowByCategory,
   summarizeStatementsByYear,
 } from "@/lib/analytics/finance";
 import { formatDateTime, formatMoney, formatMonth, formatNumber, growth } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import type { FinanceCashFlowRow, FinanceStatementLine, FinanceUpload } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Финансы" };
@@ -55,10 +56,13 @@ export default async function FinancePage() {
 
   const cashFlowMonths = aggregateCashFlowByMonth(cashFlowRows);
   const statements = summarizeStatementsByYear(statementLines);
-  const insights = buildFinanceInsights(cashFlowMonths, statements);
 
-  const inflowByCategory = cashFlowByCategory(cashFlowRows, "inflow").slice(0, 7);
-  const outflowByCategory = cashFlowByCategory(cashFlowRows, "outflow").slice(0, 7);
+  const inflowByCategoryFull = cashFlowByCategory(cashFlowRows, "inflow");
+  const outflowByCategoryFull = cashFlowByCategory(cashFlowRows, "outflow");
+  const inflowByCategory = inflowByCategoryFull.slice(0, 7);
+  const outflowByCategory = outflowByCategoryFull.slice(0, 7);
+
+  const recommendations = buildFinanceRecommendations(cashFlowMonths, statements, outflowByCategoryFull);
 
   const lastMonth = cashFlowMonths[cashFlowMonths.length - 1];
   const prevMonth = cashFlowMonths[cashFlowMonths.length - 2];
@@ -136,25 +140,45 @@ export default async function FinancePage() {
           <Card className="xl:col-span-2">
             <CardHeader>
               <CardTitle>Движение денег по счёту 51</CardTitle>
+              <CardDescription>
+                Приток (поступления) и отток (списания) по расчётному счёту, помесячно, по данным
+                загруженных отчётов «Отчёт за месяц».
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <CashFlowChart data={cashFlowMonths} />
             </CardContent>
           </Card>
           <Card>
-            <CardHeader className="flex-row items-center gap-2">
-              <Lightbulb className="text-primary size-4" />
-              <CardTitle>Автоматические выводы</CardTitle>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Lightbulb className="text-primary size-4" />
+                <CardTitle>Рекомендации</CardTitle>
+              </div>
+              <CardDescription>
+                Плюсы, минусы и что стоит сделать дальше — по данным загруженных отчётов.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <ul className="space-y-3">
-                {insights.map((text, i) => (
+                {recommendations.map((rec, i) => (
                   <li key={i} className="text-muted-foreground flex gap-2 text-sm">
-                    <span className="bg-primary mt-1.5 size-1.5 shrink-0 rounded-full" />
-                    <span>{text}</span>
+                    <span
+                      className={cn(
+                        "mt-1.5 size-1.5 shrink-0 rounded-full",
+                        rec.tone === "positive" && "bg-emerald-500",
+                        rec.tone === "risk" && "bg-red-500",
+                        rec.tone === "action" && "bg-primary",
+                      )}
+                    />
+                    <span>{rec.text}</span>
                   </li>
                 ))}
-                {!insights.length && <li className="text-muted-foreground text-sm">Загрузите отчёты, чтобы увидеть выводы.</li>}
+                {!recommendations.length && (
+                  <li className="text-muted-foreground text-sm">
+                    Загрузите отчёты, чтобы увидеть рекомендации.
+                  </li>
+                )}
               </ul>
             </CardContent>
           </Card>
@@ -166,6 +190,10 @@ export default async function FinancePage() {
           <Card>
             <CardHeader>
               <CardTitle>Приток по статьям</CardTitle>
+              <CardDescription>
+                Поступления денег на счёт за весь загруженный период, сгруппированные по укрупнённым
+                статьям (поставщики, покупатели, кредиты и т.д.), от крупной к мелкой.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <RankBarChart
@@ -179,6 +207,9 @@ export default async function FinancePage() {
           <Card>
             <CardHeader>
               <CardTitle>Отток по статьям</CardTitle>
+              <CardDescription>
+                Списания со счёта за весь загруженный период, по тем же укрупнённым статьям.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <RankBarChart
@@ -197,6 +228,7 @@ export default async function FinancePage() {
           <Card>
             <CardHeader>
               <CardTitle>Выручка по годам</CardTitle>
+              <CardDescription>Из годовой отчётности (форма 0710002), строка «Выручка».</CardDescription>
             </CardHeader>
             <CardContent>
               <YearlyBarChart
@@ -208,6 +240,7 @@ export default async function FinancePage() {
           <Card>
             <CardHeader>
               <CardTitle>Чистая прибыль по годам</CardTitle>
+              <CardDescription>Из годовой отчётности, строка «Чистая прибыль (убыток)».</CardDescription>
             </CardHeader>
             <CardContent>
               <YearlyBarChart
@@ -221,7 +254,7 @@ export default async function FinancePage() {
 
       <Card className="mt-4">
         <CardHeader>
-          <CardTitle>Загрузки: анализ счёта 51</CardTitle>
+          <CardTitle>Загрузки: отчёт за месяц</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">

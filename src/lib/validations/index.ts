@@ -8,6 +8,12 @@ const optionalText = z
   .or(z.literal(""))
   .transform((v) => (v ? v : undefined));
 
+/** Необязательное число из текстового/number-инпута: "" → undefined, а не 0. */
+const optionalNumber = z.preprocess(
+  (v) => (v === "" || v === undefined || v === null ? undefined : Number(v)),
+  z.number().min(0).optional(),
+);
+
 export const loginSchema = z.object({
   email: z.string().email("Укажите корректный e-mail"),
   password: z.string().min(6, "Минимум 6 символов"),
@@ -17,7 +23,6 @@ export type LoginInput = z.infer<typeof loginSchema>;
 export const clientSchema = z.object({
   name: z.string().trim().min(2, "Укажите название или ФИО"),
   type: z.enum(["individual", "company"]),
-  status: z.enum(["lead", "active", "inactive"]),
   inn: optionalText,
   phone: optionalText,
   email: z
@@ -37,6 +42,40 @@ export const clientSchema = z.object({
 export type ClientInput = z.output<typeof clientSchema>;
 export type ClientFormValues = z.input<typeof clientSchema>;
 
+/** Обязательная следующая задача по сделке — ответственный, дедлайн, тип, комментарий. */
+export const dealTaskSchema = z.object({
+  assignee_id: z.string().uuid().optional().or(z.literal("")).transform((v) => (v ? v : undefined)),
+  type: z.enum(["call", "meeting", "email", "message", "other"]),
+  due_at: z.string().min(1, "Укажите дедлайн"),
+  comment: z.string().trim().min(3, "Опишите, что конкретно нужно сделать"),
+});
+export type DealTaskInput = z.output<typeof dealTaskSchema>;
+export type DealTaskFormValues = z.input<typeof dealTaskSchema>;
+
+/** Поля сделки, которые становятся обязательными на определённых этапах — см. moveOrderStage. */
+export const dealStageFieldsSchema = z.object({
+  budget: optionalNumber,
+  priority: z.enum(["A", "B", "C"]).optional(),
+  product_interest: optionalText,
+  urgency: z.enum(["high", "medium", "low"]).optional(),
+  deal_type: z.enum(["new", "repeat"]).optional(),
+  proposal_amount: optionalNumber,
+  meeting_at: optionalText,
+  rejection_reason: optionalText,
+  rejection_comment: optionalText,
+});
+export type DealStageFieldsInput = z.output<typeof dealStageFieldsSchema>;
+
+export const dealStageEnum = z.enum([
+  "new",
+  "contacted",
+  "proposal_sent",
+  "meeting_scheduled",
+  "won",
+  "conditional_rejection",
+  "closed_lost",
+]);
+
 export const orderItemSchema = z.object({
   product_id: z.string().uuid().optional().or(z.literal("")).transform((v) => (v ? v : undefined)),
   name: z.string().trim().min(1, "Укажите наименование"),
@@ -51,7 +90,6 @@ export const orderSchema = z.object({
   client_id: z.string().uuid("Выберите клиента"),
   manager_id: z.string().uuid().optional().or(z.literal("")).transform((v) => (v ? v : undefined)),
   store_id: z.string().uuid().optional().or(z.literal("")).transform((v) => (v ? v : undefined)),
-  status: z.enum(["new", "confirmed", "paid", "shipping", "completed", "cancelled"]),
   discount_percent: z.coerce.number().min(0).max(50).default(0),
   bonus_used: z.coerce.number().min(0).default(0),
   delivery_address: optionalText,
