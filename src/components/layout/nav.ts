@@ -1,7 +1,6 @@
 import {
   Boxes,
   Building2,
-  FileSpreadsheet,
   Gift,
   LayoutDashboard,
   MapPinned,
@@ -39,12 +38,6 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: "Аналитика",
     items: [
-      {
-        href: "/uploads",
-        label: "Загрузка отчётов",
-        icon: FileSpreadsheet,
-        roles: ["admin", "director"],
-      },
       {
         href: "/districts",
         label: "Анализ районов",

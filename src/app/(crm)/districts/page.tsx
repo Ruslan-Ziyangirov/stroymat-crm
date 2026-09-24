@@ -89,8 +89,9 @@ export default async function DistrictsPage() {
             <MapPinned className="text-muted-foreground size-8" />
             <p className="font-medium">Анализов пока нет</p>
             <p className="text-muted-foreground max-w-md text-sm">
-              Заполните данные по району: конкуренты, уровень цен, жилая застройка, новые
-              стройки, инфраструктура и спрос — система рассчитает оценку потенциала.
+              Заполните данные по зоне охвата: население, тип застройки, конкуренты,
+              доступность точки, аренда и близость своего магазина — система рассчитает
+              оценку потенциала и подскажет, где взять каждую цифру.
             </p>
             <Button asChild>
               <Link href="/districts/new">Создать первый анализ</Link>

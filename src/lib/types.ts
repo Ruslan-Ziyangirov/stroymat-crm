@@ -170,69 +170,31 @@ export interface BonusTransaction {
   client?: Pick<Client, "id" | "name"> | null;
 }
 
-export interface ReportUpload {
-  id: string;
-  file_name: string;
-  file_path: string | null;
-  store_id: string | null;
-  period_start: string | null;
-  period_end: string | null;
-  status: UploadStatus;
-  rows_count: number;
-  total_amount: number;
-  summary: UploadSummary;
-  error: string | null;
-  uploaded_by: string | null;
-  created_at: string;
-  store?: Pick<Store, "id" | "name"> | null;
-}
-
-export interface UploadSummary {
-  columns?: string[];
-  months?: { month: string; amount: number; rows: number }[];
-  topProducts?: { name: string; amount: number; quantity: number }[];
-  topClients?: { name: string; amount: number }[];
-  insights?: string[];
-}
-
-export interface ReportRow {
-  id: string;
-  upload_id: string;
-  store_id: string | null;
-  doc_date: string | null;
-  period_month: string | null;
-  client_name: string | null;
-  order_number: string | null;
-  product_name: string | null;
-  category: string | null;
-  quantity: number | null;
-  amount: number | null;
-  raw: Record<string, unknown>;
-}
+export type DistrictBuildingType = "private" | "apartments" | "mixed";
+export type DistrictAccessibility = "yes" | "partial" | "no";
+export type DistrictYesNo = "yes" | "no";
 
 export interface DistrictInputs {
-  competitors: number;
-  competitorStrength: number;
-  priceLevel: number;
-  residentialUnits: number;
-  newConstructions: number;
-  infrastructure: number;
-  demand: number;
-  prospects: number;
-  rentCost: number;
-  logistics: number;
+  /** Население зоны охвата, чел. — не указано, если данных нет (не 0). */
+  population?: number;
+  buildingType: DistrictBuildingType;
+  competitorsCount: number;
+  /** Сколько из конкурентов — сильные сети/крупные игроки (0–2). */
+  strongCompetitors: number;
+  accessibility: DistrictAccessibility;
+  /** ₽/мес — не указано, если точка ещё не выбрана. */
+  rentCost?: number;
+  ownStoreNearby: DistrictYesNo;
   comment?: string;
 }
 
 export interface DistrictScores {
-  competition: number;
-  pricing: number;
-  housing: number;
-  construction: number;
-  infrastructure: number;
-  demand: number;
-  prospects: number;
-  economics: number;
+  population: number;
+  competitors: number;
+  accessibility: number;
+  ownStoreNearby: number;
+  buildingType: number;
+  rent: number;
 }
 
 export interface DistrictAnalysis {

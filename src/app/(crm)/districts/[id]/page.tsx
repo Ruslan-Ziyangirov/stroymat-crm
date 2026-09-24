@@ -12,7 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
-import { DISTRICT_CRITERIA_LABELS, verdictFor } from "@/lib/analytics/district";
+import { DISTRICT_CRITERIA_LABELS, missingDistrictInputs, verdictFor } from "@/lib/analytics/district";
 import { formatDateTime, formatMoney, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { DistrictAnalysis, DistrictScores } from "@/lib/types";
@@ -46,6 +46,16 @@ export default async function DistrictPage({
     criterion: DISTRICT_CRITERIA_LABELS[key],
     score: scores[key],
   }));
+  const missing = missingDistrictInputs(inputs);
+
+  const buildingTypeLabel =
+    inputs.buildingType === "mixed"
+      ? "Смешанная"
+      : inputs.buildingType === "private"
+        ? "Преимущественно частные дома"
+        : "Многоквартирные дома";
+  const accessibilityLabel =
+    inputs.accessibility === "yes" ? "Да" : inputs.accessibility === "partial" ? "Частично" : "Нет";
 
   return (
     <>
@@ -131,16 +141,24 @@ export default async function DistrictPage({
             <CardTitle>Исходные данные</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <Row label="Магазинов-конкурентов" value={formatNumber(inputs.competitors)} />
-            <Row label="Сила конкурентов" value={`${inputs.competitorStrength} из 5`} />
-            <Row label="Уровень цен в районе" value={`${inputs.priceLevel} из 5`} />
-            <Row label="Жилая застройка" value={`${formatNumber(inputs.residentialUnits)} кв.`} />
-            <Row label="Активных строек" value={formatNumber(inputs.newConstructions)} />
-            <Row label="Инфраструктура" value={`${inputs.infrastructure} из 5`} />
-            <Row label="Потенциальный спрос" value={`${inputs.demand} из 5`} />
-            <Row label="Перспективы развития" value={`${inputs.prospects} из 5`} />
-            <Row label="Логистика" value={`${inputs.logistics} из 5`} />
-            <Row label="Аренда" value={`${formatMoney(inputs.rentCost)} / мес.`} />
+            <Row
+              label="Население зоны охвата"
+              value={inputs.population != null ? `${formatNumber(inputs.population)} чел.` : "Неизвестно"}
+            />
+            <Row label="Тип застройки" value={buildingTypeLabel} />
+            <Row label="Конкурентов в доступности" value={formatNumber(inputs.competitorsCount)} />
+            <Row label="Из них сильных" value={formatNumber(inputs.strongCompetitors)} />
+            <Row label="Доступность точки" value={accessibilityLabel} />
+            <Row
+              label="Аренда"
+              value={inputs.rentCost != null ? `${formatMoney(inputs.rentCost)} / мес.` : "Точка не выбрана"}
+            />
+            <Row label="Близость своего магазина" value={inputs.ownStoreNearby === "yes" ? "Да" : "Нет"} />
+            {missing.length > 0 && (
+              <p className="text-muted-foreground text-xs">
+                Не указано: {missing.join(", ").toLowerCase()}.
+              </p>
+            )}
             {inputs.comment && (
               <>
                 <Separator />

@@ -24,6 +24,7 @@ import { Field } from "@/components/common/field";
 import { createDistrict, updateDistrict } from "@/lib/actions/districts";
 import {
   DISTRICT_CRITERIA_LABELS,
+  missingDistrictInputs,
   scoreDistrict,
   totalScore,
   verdictFor,
@@ -35,29 +36,6 @@ import {
 } from "@/lib/validations";
 import type { DistrictAnalysis, DistrictInputs, DistrictScores } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-type ScaleName =
-  | "competitorStrength"
-  | "priceLevel"
-  | "infrastructure"
-  | "demand"
-  | "prospects"
-  | "logistics";
-
-const SCALE_LABELS: Record<ScaleName, string[]> = {
-  competitorStrength: [
-    "Мелкие точки",
-    "Слабые локальные",
-    "Средние игроки",
-    "Сильные сети",
-    "Федеральные гипермаркеты",
-  ],
-  priceLevel: ["Очень низкий", "Низкий", "Средний", "Выше среднего", "Премиум"],
-  infrastructure: ["Почти нет", "Слабая", "Средняя", "Хорошая", "Отличная"],
-  demand: ["Очень низкий", "Низкий", "Средний", "Высокий", "Очень высокий"],
-  prospects: ["Район стагнирует", "Слабые", "Умеренные", "Хорошие", "Активное развитие"],
-  logistics: ["Очень сложная", "Сложная", "Средняя", "Удобная", "Отличная"],
-};
 
 export function DistrictForm({ analysis }: { analysis?: DistrictAnalysis }) {
   const router = useRouter();
@@ -74,16 +52,13 @@ export function DistrictForm({ analysis }: { analysis?: DistrictAnalysis }) {
     defaultValues: {
       name: analysis?.name ?? "",
       city: analysis?.city ?? undefined,
-      competitors: inputs?.competitors ?? 0,
-      competitorStrength: inputs?.competitorStrength ?? 3,
-      priceLevel: inputs?.priceLevel ?? 3,
-      residentialUnits: inputs?.residentialUnits ?? 0,
-      newConstructions: inputs?.newConstructions ?? 0,
-      infrastructure: inputs?.infrastructure ?? 3,
-      demand: inputs?.demand ?? 3,
-      prospects: inputs?.prospects ?? 3,
-      rentCost: inputs?.rentCost ?? 0,
-      logistics: inputs?.logistics ?? 3,
+      population: inputs?.population,
+      buildingType: inputs?.buildingType ?? "mixed",
+      competitorsCount: inputs?.competitorsCount ?? 0,
+      strongCompetitors: inputs?.strongCompetitors ?? 0,
+      accessibility: inputs?.accessibility ?? "yes",
+      rentCost: inputs?.rentCost,
+      ownStoreNearby: inputs?.ownStoreNearby ?? "no",
       comment: inputs?.comment ?? undefined,
     },
   });
@@ -92,20 +67,18 @@ export function DistrictForm({ analysis }: { analysis?: DistrictAnalysis }) {
 
   // Живой пересчёт оценки прямо во время заполнения.
   const preview: DistrictInputs = {
-    competitors: Number(watched.competitors ?? 0),
-    competitorStrength: Number(watched.competitorStrength ?? 3),
-    priceLevel: Number(watched.priceLevel ?? 3),
-    residentialUnits: Number(watched.residentialUnits ?? 0),
-    newConstructions: Number(watched.newConstructions ?? 0),
-    infrastructure: Number(watched.infrastructure ?? 3),
-    demand: Number(watched.demand ?? 3),
-    prospects: Number(watched.prospects ?? 3),
-    rentCost: Number(watched.rentCost ?? 0),
-    logistics: Number(watched.logistics ?? 3),
+    population: watched.population === "" || watched.population == null ? undefined : Number(watched.population),
+    buildingType: watched.buildingType ?? "mixed",
+    competitorsCount: Number(watched.competitorsCount ?? 0),
+    strongCompetitors: Number(watched.strongCompetitors ?? 0),
+    accessibility: watched.accessibility ?? "yes",
+    rentCost: watched.rentCost === "" || watched.rentCost == null ? undefined : Number(watched.rentCost),
+    ownStoreNearby: watched.ownStoreNearby ?? "no",
   };
   const scores = scoreDistrict(preview);
   const total = totalScore(scores);
   const verdict = verdictFor(total);
+  const missing = missingDistrictInputs(preview);
 
   const onSubmit = (values: DistrictInput) => {
     startTransition(async () => {
@@ -121,32 +94,6 @@ export function DistrictForm({ analysis }: { analysis?: DistrictAnalysis }) {
       router.refresh();
     });
   };
-
-  const scaleField = (name: ScaleName, label: string) => (
-    <Field label={label} error={errors[name]?.message}>
-      <Controller
-        control={control}
-        name={name}
-        render={({ field }) => (
-          <Select
-            value={String(field.value ?? 3)}
-            onValueChange={(v) => field.onChange(Number(v))}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SCALE_LABELS[name].map((text, index) => (
-                <SelectItem key={index} value={String(index + 1)}>
-                  {index + 1} — {text}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      />
-    </Field>
-  );
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4 lg:grid-cols-3">
@@ -167,64 +114,154 @@ export function DistrictForm({ analysis }: { analysis?: DistrictAnalysis }) {
 
         <Card>
           <CardHeader>
-            <CardTitle>Конкуренты и цены</CardTitle>
+            <CardTitle>Спрос и застройка</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <Field
-              label="Магазинов-конкурентов"
-              htmlFor="competitors"
-              error={errors.competitors?.message}
-              hint="Сколько строительных магазинов уже работает в районе"
+              label="Население зоны охвата, чел."
+              htmlFor="population"
+              error={errors.population?.message}
+              hint="Число жителей населённого пункта и соседних посёлков, откуда удобно доехать. Оставьте пустым, если точных данных нет — балл усреднится, а не обнулится."
+              source="Росстат — данные по муниципальным образованиям; соседние пункты — по карте"
+              className="sm:col-span-2"
             >
-              <Input id="competitors" type="number" min="0" {...register("competitors")} />
+              <Input
+                id="population"
+                type="number"
+                min="0"
+                placeholder="Неизвестно"
+                {...register("population")}
+              />
             </Field>
-            {scaleField("competitorStrength", "Сила конкурентов")}
-            {scaleField("priceLevel", "Примерный уровень цен в районе")}
+
             <Field
-              label="Аренда помещения, ₽/мес."
-              htmlFor="rentCost"
-              error={errors.rentCost?.message}
+              label="Тип застройки"
+              hint="Ориентир для выбора ассортимента: в частном секторе выше спрос на пиломатериалы и кровлю"
+              source="Визуально по карте"
             >
-              <Input id="rentCost" type="number" min="0" step="1000" {...register("rentCost")} />
+              <Controller
+                control={control}
+                name="buildingType"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="private">Преимущественно частные дома</SelectItem>
+                      <SelectItem value="apartments">Многоквартирные дома</SelectItem>
+                      <SelectItem value="mixed">Смешанная</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
             </Field>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Застройка и спрос</CardTitle>
+            <CardTitle>Конкуренты</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <Field
-              label="Жилая застройка, квартир"
-              htmlFor="residentialUnits"
-              error={errors.residentialUnits?.message}
-              hint="Оценочное число квартир и домов в зоне охвата"
+              label="Конкурентов в доступности"
+              htmlFor="competitorsCount"
+              error={errors.competitorsCount?.message}
+              hint="Строительных магазинов в пределах выбранного времени поездки, включая соседний район, если до него легко доехать"
+              source="Поиск организаций и маршрутов в Яндекс Картах"
             >
               <Input
-                id="residentialUnits"
+                id="competitorsCount"
                 type="number"
                 min="0"
-                step="100"
-                {...register("residentialUnits")}
+                {...register("competitorsCount")}
               />
             </Field>
             <Field
-              label="Активных строек рядом"
-              htmlFor="newConstructions"
-              error={errors.newConstructions?.message}
+              label="Из них сильных"
+              htmlFor="strongCompetitors"
+              error={errors.strongCompetitors?.message}
+              hint="Крупные сети/гипермаркеты среди конкурентов — балл снижается пропорционально их доле, а не штуками"
             >
               <Input
-                id="newConstructions"
+                id="strongCompetitors"
                 type="number"
                 min="0"
-                {...register("newConstructions")}
+                {...register("strongCompetitors")}
               />
             </Field>
-            {scaleField("infrastructure", "Инфраструктура")}
-            {scaleField("demand", "Потенциальный спрос")}
-            {scaleField("prospects", "Перспективы развития района")}
-            {scaleField("logistics", "Логистика и подъезд")}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Точка</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Доступность точки"
+              hint="Удобно ли подъехать, припарковаться и загрузить стройматериалы"
+              source="Карта и короткий осмотр помещения"
+            >
+              <Controller
+                control={control}
+                name="accessibility"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="yes">Да</SelectItem>
+                      <SelectItem value="partial">Частично</SelectItem>
+                      <SelectItem value="no">Нет</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </Field>
+
+            <Field
+              label="Аренда помещения, ₽/мес."
+              htmlFor="rentCost"
+              error={errors.rentCost?.message}
+              hint="Оставьте пустым, если помещение ещё не выбрано"
+              source="Объявление или предложение арендодателя"
+            >
+              <Input
+                id="rentCost"
+                type="number"
+                min="0"
+                step="1000"
+                placeholder="Не выбрано"
+                {...register("rentCost")}
+              />
+            </Field>
+
+            <Field
+              label="Близость своего магазина"
+              hint="Есть ли другая точка сети в той же зоне доступности"
+              source="Адреса своих магазинов и маршрут на карте"
+              className="sm:col-span-2"
+            >
+              <Controller
+                control={control}
+                name="ownStoreNearby"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no">Нет</SelectItem>
+                      <SelectItem value="yes">Да</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </Field>
+
             <Field
               label="Комментарий"
               htmlFor="comment"
@@ -282,9 +319,18 @@ export function DistrictForm({ analysis }: { analysis?: DistrictAnalysis }) {
               ))}
             </div>
 
+            {missing.length > 0 && (
+              <>
+                <Separator />
+                <p className="text-muted-foreground text-xs">
+                  Не указано: {missing.join(", ").toLowerCase()} — балл по этим критериям усреднён.
+                </p>
+              </>
+            )}
+
             <Button type="submit" className="w-full" disabled={pending}>
               {pending && <Loader2 className="size-4 animate-spin" />}
-              {analysis ? "Сохранить анализ" : "Сохранить анализ"}
+              Сохранить анализ
             </Button>
           </CardContent>
         </Card>

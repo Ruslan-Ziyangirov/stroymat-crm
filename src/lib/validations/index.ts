@@ -154,21 +154,23 @@ export const userSchema = z.object({
 export type UserInput = z.output<typeof userSchema>;
 export type UserFormValues = z.input<typeof userSchema>;
 
-export const districtSchema = z.object({
-  name: z.string().trim().min(2, "Укажите район"),
-  city: optionalText,
-  competitors: z.coerce.number().int().min(0).max(100),
-  competitorStrength: z.coerce.number().int().min(1).max(5),
-  priceLevel: z.coerce.number().int().min(1).max(5),
-  residentialUnits: z.coerce.number().int().min(0),
-  newConstructions: z.coerce.number().int().min(0),
-  infrastructure: z.coerce.number().int().min(1).max(5),
-  demand: z.coerce.number().int().min(1).max(5),
-  prospects: z.coerce.number().int().min(1).max(5),
-  rentCost: z.coerce.number().min(0),
-  logistics: z.coerce.number().int().min(1).max(5),
-  comment: optionalText,
-});
+export const districtSchema = z
+  .object({
+    name: z.string().trim().min(2, "Укажите район"),
+    city: optionalText,
+    population: optionalNumber,
+    buildingType: z.enum(["private", "apartments", "mixed"]),
+    competitorsCount: z.coerce.number().int().min(0).max(999),
+    strongCompetitors: z.coerce.number().int().min(0).max(999),
+    accessibility: z.enum(["yes", "partial", "no"]),
+    rentCost: optionalNumber,
+    ownStoreNearby: z.enum(["yes", "no"]),
+    comment: optionalText,
+  })
+  .refine((v) => v.strongCompetitors <= v.competitorsCount, {
+    message: "Не может быть больше общего числа конкурентов",
+    path: ["strongCompetitors"],
+  });
 export type DistrictInput = z.output<typeof districtSchema>;
 export type DistrictFormValues = z.input<typeof districtSchema>;
 
