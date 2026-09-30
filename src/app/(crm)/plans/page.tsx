@@ -14,30 +14,37 @@ import {
 import { PlanForm } from "@/components/plans/plan-form";
 import { DeletePlanButton } from "@/components/plans/delete-plan-button";
 import { requireRole } from "@/lib/auth";
-import { getAllPlans, getStores, currentMonthISO } from "@/lib/queries/refs";
+import { getAllPlans, getManagers, getStores, currentMonthISO } from "@/lib/queries/refs";
 import { formatMoney, formatMonth } from "@/lib/format";
+import type { MonthlyPlan } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Планы продаж" };
+
+function planTarget(plan: MonthlyPlan) {
+  if (plan.manager_id) return `Менеджер: ${plan.manager?.full_name ?? "удалён"}`;
+  if (plan.store_id) return plan.store?.name ?? "Филиал удалён";
+  return "Компания целиком";
+}
 
 export default async function PlansPage() {
   await requireRole(["admin", "director"]);
 
-  const [stores, plans] = await Promise.all([getStores(), getAllPlans()]);
+  const [stores, managers, plans] = await Promise.all([getStores(), getManagers(), getAllPlans()]);
 
   return (
     <>
       <PageHeader
         title="Планы продаж"
-        description="Плановая выручка на месяц — общая по компании и по каждому филиалу отдельно. Прогресс виден на дашборде."
+        description="Плановая выручка на месяц — по компании, по филиалам и личные планы менеджеров. Менеджер видит свой план и прогресс на дашборде."
       />
 
       <Card>
-        <CardHeader className="flex-row items-center gap-2">
+        <CardHeader className="flex flex-row items-center gap-2">
           <Target className="text-primary size-4" />
           <CardTitle>Установить план</CardTitle>
         </CardHeader>
         <CardContent>
-          <PlanForm stores={stores} defaultMonth={currentMonthISO()} />
+          <PlanForm stores={stores} managers={managers} defaultMonth={currentMonthISO()} />
         </CardContent>
       </Card>
 
@@ -51,18 +58,19 @@ export default async function PlansPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Месяц</TableHead>
-                  <TableHead>Филиал</TableHead>
+                  <TableHead>План для</TableHead>
                   <TableHead className="text-right">План</TableHead>
                   <TableHead className="text-right">Действия</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {plans.map((plan) => {
-                  const label = `${formatMonth(plan.month)} · ${plan.store?.name ?? "Компания целиком"}`;
+                  const target = planTarget(plan);
+                  const label = `${formatMonth(plan.month)} · ${target}`;
                   return (
                     <TableRow key={plan.id}>
                       <TableCell className="font-medium">{formatMonth(plan.month)}</TableCell>
-                      <TableCell>{plan.store?.name ?? "Компания целиком"}</TableCell>
+                      <TableCell>{target}</TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatMoney(plan.target_amount)}
                       </TableCell>

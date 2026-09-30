@@ -8,7 +8,8 @@ import { StatCard } from "@/components/common/stat-card";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile, isPrivileged } from "@/lib/auth";
-import { getManagers } from "@/lib/queries/refs";
+import { getClientOptions, getManagers } from "@/lib/queries/refs";
+import { NewLeadDialog } from "@/components/orders/new-lead-dialog";
 import { ACTIVE_DEAL_STAGES } from "@/lib/constants";
 import { formatMoney, formatNumber } from "@/lib/format";
 import type { DealStage, DealTaskType } from "@/lib/types";
@@ -20,7 +21,7 @@ export default async function OrdersPage() {
   const privileged = isPrivileged(profile);
   const supabase = await createClient();
 
-  const [ordersRes, tasksRes, settingsRes, managers] = await Promise.all([
+  const [ordersRes, tasksRes, settingsRes, managers, clientOptions] = await Promise.all([
     supabase
       .from("orders")
       .select(
@@ -34,6 +35,7 @@ export default async function OrdersPage() {
       .order("due_at", { ascending: true }),
     supabase.from("pipeline_settings").select("manager_active_deal_limit").eq("id", true).maybeSingle(),
     getManagers(),
+    getClientOptions(),
   ]);
 
   const orders = ordersRes.data ?? [];
@@ -86,12 +88,18 @@ export default async function OrdersPage() {
         title="Заказы"
         description="Воронка сделок: перетащите карточку на другой этап или откройте её, чтобы поставить следующий шаг."
         actions={
-          <Button asChild>
-            <Link href="/orders/new">
-              <Plus className="size-4" />
-              Новый заказ
-            </Link>
-          </Button>
+          <>
+            <NewLeadDialog
+              clients={clientOptions.map((c) => ({ id: c.id, name: c.name }))}
+              managers={managers}
+            />
+            <Button asChild>
+              <Link href="/orders/new">
+                <Plus className="size-4" />
+                Новый заказ
+              </Link>
+            </Button>
+          </>
         }
       />
 

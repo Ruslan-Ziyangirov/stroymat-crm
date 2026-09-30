@@ -30,7 +30,7 @@ export function TaskList({
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between">
+      <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Задачи</CardTitle>
         <Button size="sm" onClick={() => setOpen(true)}>
           Следующий шаг
@@ -73,6 +73,9 @@ export function TaskList({
                   <CheckCircle2 className="mt-0.5 size-3.5 shrink-0" />
                   <span>
                     {formatDateTime(task.due_at)} — {DEAL_TASK_TYPE_LABELS[task.type]}: {task.comment}
+                    {task.result && (
+                      <span className="text-foreground mt-0.5 block">Итог: {task.result}</span>
+                    )}
                   </span>
                 </li>
               ))}

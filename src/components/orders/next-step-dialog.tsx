@@ -36,8 +36,15 @@ import {
   DEAL_URGENCY_LABELS,
   REJECTION_REASONS,
 } from "@/lib/constants";
-import { formatDateTime, formatMoney, toDatetimeLocalValue, tomorrowAt } from "@/lib/format";
-import type { DealPriority, DealStage, DealTaskType, DealType, DealUrgency, Profile } from "@/lib/types";
+import { formatDateTime, formatMoney } from "@/lib/format";
+import type {
+  DealPriority,
+  DealStage,
+  DealTaskType,
+  DealType,
+  DealUrgency,
+  Profile,
+} from "@/lib/types";
 
 const NONE = "__none__";
 
@@ -67,7 +74,6 @@ export interface NextStepOrder {
 
 interface FormValues {
   targetStage: DealStage;
-  budget: string;
   priority: DealPriority | "";
   product_interest: string;
   urgency: DealUrgency | "";
@@ -76,109 +82,147 @@ interface FormValues {
   meeting_at: string;
   rejection_reason: string;
   rejection_comment: string;
-  assignee_id: string;
-  task_type: DealTaskType;
-  due_at: string;
-  comment: string;
 }
 
-export function NextStepDialog({
-  open,
-  onOpenChange,
-  order,
-  initialTargetStage,
-  managers,
-  canClose,
-  onDone,
-}: {
-  open: boolean;
+type StageErrors = Partial<
+  Record<Exclude<keyof FormValues, "targetStage">, string>
+>;
+
+interface Errors {
+  stage: StageErrors;
+  general?: string;
+}
+
+/** Сумма заказа — разумное значение по умолчанию для суммы КП. */
+const amountDefault = (value: number | null, total: number) =>
+  value != null ? String(value) : total > 0 ? String(total) : "";
+
+function defaultValues(
+  order: NextStepOrder,
+  targetStage: DealStage,
+): FormValues {
+  return {
+    targetStage,
+    priority: order.priority ?? "",
+    product_interest: order.product_interest ?? "",
+    urgency: order.urgency ?? "",
+    deal_type: order.deal_type ?? "",
+    proposal_amount: amountDefault(order.proposal_amount, order.total),
+    meeting_at: "",
+    rejection_reason: "",
+    rejection_comment: "",
+  };
+}
+
+function validate(
+  values: FormValues,
+  currentStage: DealStage,
+  result: string,
+): Errors {
+  const stage: StageErrors = {};
+  const stageChanged = values.targetStage !== currentStage;
+
+  if (stageChanged && values.targetStage === "proposal_sent") {
+    const required = "Обязательно для «КП отправлено»";
+    if (!values.proposal_amount) stage.proposal_amount = required;
+    if (!values.priority) stage.priority = required;
+    if (!values.deal_type) stage.deal_type = required;
+    if (!values.product_interest.trim()) stage.product_interest = required;
+  }
+  if (
+    stageChanged &&
+    values.targetStage === "meeting_scheduled" &&
+    !values.meeting_at
+  ) {
+    stage.meeting_at = "Укажите дату и время встречи";
+  }
+  if (stageChanged && values.targetStage === "conditional_rejection") {
+    if (!values.rejection_reason) stage.rejection_reason = "Выберите причину";
+    if (values.rejection_comment.trim().length < 3)
+      stage.rejection_comment = "Опишите, что произошло";
+  }
+
+  const errors: Errors = { stage };
+  if (!stageChanged && !result.trim()) {
+    errors.general = "Запишите, что произошло, или выберите другой этап.";
+  }
+  return errors;
+}
+
+const hasErrors = (e: Errors) => Object.keys(e.stage).length > 0 || !!e.general;
+
+interface NextStepProps {
   onOpenChange: (open: boolean) => void;
   order: NextStepOrder;
   initialTargetStage?: DealStage;
   managers: Pick<Profile, "id" | "full_name">[];
   canClose: boolean;
   onDone?: () => void;
-}) {
+}
+
+export function NextStepDialog({
+  open,
+  ...props
+}: NextStepProps & { open: boolean }) {
+  return (
+    <Dialog open={open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+        {/* Содержимое монтируется заново при каждом открытии — форма всегда с чистыми дефолтами. */}
+        <NextStepBody {...props} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function NextStepBody({
+  onOpenChange,
+  order,
+  initialTargetStage,
+  canClose,
+  onDone,
+}: NextStepProps) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
+  const [result, setResult] = React.useState("");
+  const [submitted, setSubmitted] = React.useState(false);
 
-  const { register, control, handleSubmit, reset } = useForm<FormValues>({
-    defaultValues: {
-      targetStage: initialTargetStage ?? order.stage,
-      budget: order.budget != null ? String(order.budget) : "",
-      priority: order.priority ?? "",
-      product_interest: order.product_interest ?? "",
-      urgency: order.urgency ?? "",
-      deal_type: order.deal_type ?? "",
-      proposal_amount: order.proposal_amount != null ? String(order.proposal_amount) : "",
-      meeting_at: "",
-      rejection_reason: "",
-      rejection_comment: "",
-      assignee_id: order.manager_id ?? "",
-      task_type: "call",
-      due_at: toDatetimeLocalValue(tomorrowAt(10)),
-      comment: "",
-    },
+  const { register, control, handleSubmit } = useForm<FormValues>({
+    defaultValues: defaultValues(order, initialTargetStage ?? order.stage),
   });
 
-  // При каждом открытии диалога — пересобрать дефолты под актуальный заказ/цель.
-  React.useEffect(() => {
-    if (open) {
-      reset({
-        targetStage: initialTargetStage ?? order.stage,
-        budget: order.budget != null ? String(order.budget) : "",
-        priority: order.priority ?? "",
-        product_interest: order.product_interest ?? "",
-        urgency: order.urgency ?? "",
-        deal_type: order.deal_type ?? "",
-        proposal_amount: order.proposal_amount != null ? String(order.proposal_amount) : "",
-        meeting_at: "",
-        rejection_reason: "",
-        rejection_comment: "",
-        assignee_id: order.manager_id ?? "",
-        task_type: "call",
-        due_at: toDatetimeLocalValue(tomorrowAt(10)),
-        comment: "",
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, order.id, initialTargetStage]);
+  const values = useWatch({ control }) as FormValues;
+  const targetStage = values.targetStage ?? order.stage;
+  const stageChanged = targetStage !== order.stage;
+  const errors: Errors = submitted
+    ? validate({ ...values, targetStage }, order.stage, result)
+    : { stage: {} };
 
-  const targetStage = useWatch({ control, name: "targetStage" });
-  const needsProposalFields = targetStage === "proposal_sent";
-  const needsMeeting = targetStage === "meeting_scheduled";
-  const needsRejection = targetStage === "conditional_rejection";
-  const needsTask = !["won", "closed_lost", "conditional_rejection"].includes(targetStage);
+  const stageOptions = DEAL_STAGE_ORDER.filter(
+    (s) => s !== "closed_lost" || canClose || s === order.stage,
+  );
 
-  const stageOptions = DEAL_STAGE_ORDER.filter((s) => s !== "closed_lost" || canClose);
+  const onSubmit = (formValues: FormValues) => {
+    setSubmitted(true);
+    if (hasErrors(validate(formValues, order.stage, result))) return;
 
-  const onSubmit = (values: FormValues) => {
     startTransition(async () => {
-      const result = await moveOrderStage(order.id, {
-        targetStage: values.targetStage,
+      const response = await moveOrderStage(order.id, {
+        targetStage: formValues.targetStage,
+        result: result.trim() || undefined,
         fields: {
-          budget: values.budget || undefined,
-          priority: values.priority || undefined,
-          product_interest: values.product_interest || undefined,
-          urgency: values.urgency || undefined,
-          deal_type: values.deal_type || undefined,
-          proposal_amount: values.proposal_amount || undefined,
-          meeting_at: values.meeting_at || undefined,
-          rejection_reason: values.rejection_reason || undefined,
-          rejection_comment: values.rejection_comment || undefined,
+          priority: formValues.priority || undefined,
+          product_interest: formValues.product_interest || undefined,
+          urgency: formValues.urgency || undefined,
+          deal_type: formValues.deal_type || undefined,
+          proposal_amount: formValues.proposal_amount || undefined,
+          meeting_at: formValues.meeting_at || undefined,
+          rejection_reason: formValues.rejection_reason || undefined,
+          rejection_comment: formValues.rejection_comment || undefined,
         },
-        task: needsTask
-          ? {
-              assignee_id: values.assignee_id || undefined,
-              type: values.task_type,
-              due_at: values.due_at,
-              comment: values.comment,
-            }
-          : undefined,
       });
 
-      if (!result.ok) {
-        toast.error(result.error ?? "Не удалось сохранить");
+      if (!response.ok) {
+        toast.error(response.error ?? "Не удалось сохранить");
         return;
       }
       toast.success("Сохранено");
@@ -188,230 +232,196 @@ export function NextStepDialog({
     });
   };
 
+  const selectWithNone = (
+    name: "priority" | "deal_type" | "urgency" | "rejection_reason",
+    placeholder: string,
+    options: [string, string][],
+  ) => (
+    <Controller
+      control={control}
+      name={name}
+      render={({ field }) => (
+        <Select
+          value={field.value || NONE}
+          onValueChange={(v) => field.onChange(v === NONE ? "" : v)}
+        >
+          <SelectTrigger className="w-full" aria-invalid={!!errors.stage[name]}>
+            <SelectValue placeholder={placeholder} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE}>{placeholder}</SelectItem>
+            {options.map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    />
+  );
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{order.name}</DialogTitle>
-          <DialogDescription>
-            Текущий этап: {DEAL_STAGE_LABELS[order.stage]}. Ниже — данные заказа и следующий шаг.
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <DialogHeader>
+        <DialogTitle>{order.name}</DialogTitle>
+        <DialogDescription>
+          Текущий этап: {DEAL_STAGE_LABELS[order.stage]}. Запишите, что
+          произошло, и при необходимости смените этап — задача на следующий шаг
+          поставится автоматически.
+        </DialogDescription>
+      </DialogHeader>
 
-        <OrderInfoPanel order={order} />
+      <OrderInfoPanel order={order} />
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <p className="text-sm font-medium">Следующий шаг</p>
-          <Field label="Этап сделки">
-            <Controller
-              control={control}
-              name="targetStage"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {stageOptions.map((stage) => (
-                      <SelectItem key={stage} value={stage}>
-                        {DEAL_STAGE_LABELS[stage]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <Field
+          label="Что произошло"
+          hint={
+            order.openTask
+              ? `Итог по задаче «${DEAL_TASK_TYPE_LABELS[order.openTask.type]}: ${order.openTask.comment}» — попадёт в историю сделки`
+              : "Итог звонка или встречи, договорённости, возражения клиента — попадёт в историю сделки"
+          }
+          error={errors.general}
+        >
+          <Textarea
+            rows={2}
+            value={result}
+            onChange={(e) => setResult(e.target.value)}
+            placeholder="Например: клиент сравнивает с конкурентом, просит скидку 5 %"
+          />
+        </Field>
+
+        <Field label="Новый этап сделки">
+          <Controller
+            control={control}
+            name="targetStage"
+            render={({ field }) => (
+              <Select value={field.value} onValueChange={field.onChange}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {stageOptions.map((stage) => (
+                    <SelectItem key={stage} value={stage}>
+                      {DEAL_STAGE_LABELS[stage]}
+                      {stage === order.stage ? " — без изменений" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+        </Field>
+
+        {stageChanged && targetStage === "proposal_sent" && (
+          <div className="grid gap-4 rounded-xl border border-dashed p-3 sm:grid-cols-2">
+            <p className="text-muted-foreground text-xs sm:col-span-2">
+              Обязательно для «КП отправлено». Сумма КП подставлена из суммы
+              заказа.
+            </p>
+            <Field
+              label="Сумма КП, ₽"
+              htmlFor="proposal_amount"
+              error={errors.stage.proposal_amount}
+            >
+              <Input
+                id="proposal_amount"
+                type="number"
+                min="0"
+                step="1"
+                {...register("proposal_amount")}
+              />
+            </Field>
+            <Field label="Приоритет" error={errors.stage.priority}>
+              {selectWithNone(
+                "priority",
+                "Не выбран",
+                Object.entries(DEAL_PRIORITY_LABELS),
               )}
+            </Field>
+            <Field label="Тип сделки" error={errors.stage.deal_type}>
+              {selectWithNone(
+                "deal_type",
+                "Не выбран",
+                Object.entries(DEAL_TYPE_LABELS),
+              )}
+            </Field>
+            <Field
+              label="Интересующий товар"
+              htmlFor="product_interest"
+              error={errors.stage.product_interest}
+              className="sm:col-span-2"
+            >
+              <Input
+                id="product_interest"
+                placeholder="Цемент, кирпич…"
+                {...register("product_interest")}
+              />
+            </Field>
+            <Field label="Срочность">
+              {selectWithNone(
+                "urgency",
+                "Не указана",
+                Object.entries(DEAL_URGENCY_LABELS),
+              )}
+            </Field>
+          </div>
+        )}
+
+        {stageChanged && targetStage === "meeting_scheduled" && (
+          <Field
+            label="Дата и время встречи"
+            htmlFor="meeting_at"
+            error={errors.stage.meeting_at}
+          >
+            <Input
+              id="meeting_at"
+              type="datetime-local"
+              {...register("meeting_at")}
             />
           </Field>
+        )}
 
-          {needsProposalFields && (
-            <div className="grid gap-4 rounded-xl border border-dashed p-3 sm:grid-cols-2">
-              <p className="text-muted-foreground text-xs sm:col-span-2">
-                Обязательно для «КП отправлено»
-              </p>
-              <Field label="Бюджет, ₽" htmlFor="budget">
-                <Input id="budget" type="number" min="0" step="1" {...register("budget")} />
-              </Field>
-              <Field label="Сумма КП, ₽" htmlFor="proposal_amount">
-                <Input id="proposal_amount" type="number" min="0" step="1" {...register("proposal_amount")} />
-              </Field>
-              <Field label="Приоритет">
-                <Controller
-                  control={control}
-                  name="priority"
-                  render={({ field }) => (
-                    <Select value={field.value || NONE} onValueChange={(v) => field.onChange(v === NONE ? "" : v)}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Не выбран" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NONE}>Не выбран</SelectItem>
-                        {Object.entries(DEAL_PRIORITY_LABELS).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </Field>
-              <Field label="Тип сделки">
-                <Controller
-                  control={control}
-                  name="deal_type"
-                  render={({ field }) => (
-                    <Select value={field.value || NONE} onValueChange={(v) => field.onChange(v === NONE ? "" : v)}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Не выбран" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NONE}>Не выбран</SelectItem>
-                        {Object.entries(DEAL_TYPE_LABELS).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </Field>
-              <Field label="Интересующий товар" htmlFor="product_interest" className="sm:col-span-2">
-                <Input id="product_interest" placeholder="Цемент, кирпич…" {...register("product_interest")} />
-              </Field>
-              <Field label="Срочность">
-                <Controller
-                  control={control}
-                  name="urgency"
-                  render={({ field }) => (
-                    <Select value={field.value || NONE} onValueChange={(v) => field.onChange(v === NONE ? "" : v)}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Не указана" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NONE}>Не указана</SelectItem>
-                        {Object.entries(DEAL_URGENCY_LABELS).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </Field>
-            </div>
-          )}
-
-          {needsMeeting && (
-            <Field label="Дата и время встречи" htmlFor="meeting_at" hint="Обязательно для «Встреча назначена»">
-              <Input id="meeting_at" type="datetime-local" {...register("meeting_at")} />
+        {stageChanged && targetStage === "conditional_rejection" && (
+          <div className="space-y-4 rounded-xl border border-dashed p-3">
+            <Field label="Причина отказа" error={errors.stage.rejection_reason}>
+              {selectWithNone(
+                "rejection_reason",
+                "Выберите причину",
+                REJECTION_REASONS.map((r) => [r, r]),
+              )}
             </Field>
-          )}
+            <Field
+              label="Что произошло"
+              htmlFor="rejection_comment"
+              error={errors.stage.rejection_comment}
+              hint="Окончательно закрыть сделку как нереализованную сможет только руководитель"
+            >
+              <Textarea
+                id="rejection_comment"
+                rows={3}
+                {...register("rejection_comment")}
+              />
+            </Field>
+          </div>
+        )}
 
-          {needsRejection && (
-            <div className="space-y-4 rounded-xl border border-dashed p-3">
-              <Field label="Причина отказа">
-                <Controller
-                  control={control}
-                  name="rejection_reason"
-                  render={({ field }) => (
-                    <Select value={field.value || NONE} onValueChange={(v) => field.onChange(v === NONE ? "" : v)}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Выберите причину" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NONE}>Выберите причину</SelectItem>
-                        {REJECTION_REASONS.map((reason) => (
-                          <SelectItem key={reason} value={reason}>
-                            {reason}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </Field>
-              <Field
-                label="Что произошло"
-                htmlFor="rejection_comment"
-                hint="Окончательно закрыть сделку как нереализованную сможет только руководитель"
-              >
-                <Textarea id="rejection_comment" rows={3} {...register("rejection_comment")} />
-              </Field>
-            </div>
-          )}
-
-          {needsTask && (
-            <div className="grid gap-4 rounded-xl border p-3 sm:grid-cols-2">
-              <p className="text-muted-foreground text-xs sm:col-span-2">Следующая задача (обязательно)</p>
-              <Field label="Ответственный">
-                <Controller
-                  control={control}
-                  name="assignee_id"
-                  render={({ field }) => (
-                    <Select value={field.value || NONE} onValueChange={(v) => field.onChange(v === NONE ? "" : v)}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Не назначен" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NONE}>Не назначен</SelectItem>
-                        {managers.map((m) => (
-                          <SelectItem key={m.id} value={m.id}>
-                            {m.full_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </Field>
-              <Field label="Тип действия">
-                <Controller
-                  control={control}
-                  name="task_type"
-                  render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Object.entries(DEAL_TASK_TYPE_LABELS).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </Field>
-              <Field label="Точный дедлайн" htmlFor="due_at" className="sm:col-span-2">
-                <Input id="due_at" type="datetime-local" {...register("due_at")} />
-              </Field>
-              <Field
-                label="Комментарий"
-                htmlFor="comment"
-                hint="Что конкретно нужно сделать"
-                className="sm:col-span-2"
-              >
-                <Textarea id="comment" rows={2} {...register("comment")} />
-              </Field>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Отмена
-            </Button>
-            <Button type="submit" disabled={pending}>
-              {pending && <Loader2 className="size-4 animate-spin" />}
-              Сохранить
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+          >
+            Отмена
+          </Button>
+          <Button type="submit" disabled={pending}>
+            {pending && <Loader2 className="size-4 animate-spin" />}
+            Сохранить
+          </Button>
+        </DialogFooter>
+      </form>
+    </>
   );
 }
 
@@ -439,7 +449,9 @@ function OrderInfoPanel({ order }: { order: NextStepOrder }) {
             <p className="font-medium">{order.client_name}</p>
           )}
           {order.client_phone && (
-            <p className="text-muted-foreground text-xs">{order.client_phone}</p>
+            <p className="text-muted-foreground text-xs">
+              {order.client_phone}
+            </p>
           )}
         </div>
         <Link
@@ -454,28 +466,54 @@ function OrderInfoPanel({ order }: { order: NextStepOrder }) {
         <span>{order.number}</span>
         <span>от {formatDateTime(order.created_at)}</span>
         {order.manager_name && <span>{order.manager_name}</span>}
-        {order.total > 0 && (
-          <span className="text-foreground font-medium">{formatMoney(order.total)}</span>
+        {order.total > 0 ? (
+          <span className="text-foreground font-medium">
+            {formatMoney(order.total)}
+          </span>
+        ) : (
+          <span>позиции ещё не добавлены</span>
         )}
       </div>
 
       {hasDealFields && (
         <div className="grid grid-cols-2 gap-x-4 gap-y-1 border-t pt-2 text-xs">
-          {order.budget != null && <InfoRow label="Бюджет" value={formatMoney(order.budget)} />}
+          {order.budget != null && (
+            <InfoRow label="Бюджет" value={formatMoney(order.budget)} />
+          )}
           {order.proposal_amount != null && (
-            <InfoRow label="Сумма КП" value={formatMoney(order.proposal_amount)} />
+            <InfoRow
+              label="Сумма КП"
+              value={formatMoney(order.proposal_amount)}
+            />
           )}
           {order.priority && (
-            <InfoRow label="Приоритет" value={DEAL_PRIORITY_LABELS[order.priority]} />
+            <InfoRow
+              label="Приоритет"
+              value={DEAL_PRIORITY_LABELS[order.priority]}
+            />
           )}
-          {order.deal_type && <InfoRow label="Тип сделки" value={DEAL_TYPE_LABELS[order.deal_type]} />}
-          {order.product_interest && <InfoRow label="Товар" value={order.product_interest} />}
-          {order.urgency && <InfoRow label="Срочность" value={DEAL_URGENCY_LABELS[order.urgency]} />}
+          {order.deal_type && (
+            <InfoRow
+              label="Тип сделки"
+              value={DEAL_TYPE_LABELS[order.deal_type]}
+            />
+          )}
+          {order.product_interest && (
+            <InfoRow label="Интерес" value={order.product_interest} />
+          )}
+          {order.urgency && (
+            <InfoRow
+              label="Срочность"
+              value={DEAL_URGENCY_LABELS[order.urgency]}
+            />
+          )}
         </div>
       )}
 
       {order.comment && (
-        <p className="text-muted-foreground border-t pt-2 text-xs">{order.comment}</p>
+        <p className="text-muted-foreground border-t pt-2 text-xs">
+          {order.comment}
+        </p>
       )}
 
       {order.rejection_reason && (

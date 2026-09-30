@@ -99,10 +99,22 @@ export const orderSchema = z.object({
     .or(z.literal(""))
     .transform((v) => (v ? v : undefined)),
   comment: optionalText,
-  items: z.array(orderItemSchema).min(1, "Добавьте хотя бы одну позицию"),
+  // Позиции можно добавить позже: на ранних этапах воронки состава ещё нет.
+  // Перевести сделку в «Продажу» без позиций не даст moveOrderStage.
+  items: z.array(orderItemSchema),
 });
 export type OrderInput = z.output<typeof orderSchema>;
 export type OrderFormValues = z.input<typeof orderSchema>;
+
+/** Быстрый лид: клиент, интерес и первая задача — без состава заказа. */
+export const leadSchema = z.object({
+  client_id: z.string().uuid("Выберите клиента"),
+  manager_id: z.string().uuid().optional().or(z.literal("")).transform((v) => (v ? v : undefined)),
+  store_id: z.string().uuid().optional().or(z.literal("")).transform((v) => (v ? v : undefined)),
+  product_interest: z.string().trim().min(2, "Опишите, что интересует клиента"),
+  comment: optionalText,
+});
+export type LeadInput = z.output<typeof leadSchema>;
 
 export const clientEventSchema = z.object({
   client_id: z.string().uuid(),
@@ -178,6 +190,7 @@ export const planSchema = z.object({
   /** Первое число месяца, YYYY-MM-DD. */
   month: z.string().regex(/^\d{4}-\d{2}-01$/, "Некорректный месяц"),
   store_id: z.string().uuid().optional().or(z.literal("")).transform((v) => (v ? v : undefined)),
+  manager_id: z.string().uuid().optional().or(z.literal("")).transform((v) => (v ? v : undefined)),
   target_amount: z.coerce.number().min(0, "Сумма не может быть отрицательной"),
 });
 export type PlanInput = z.output<typeof planSchema>;

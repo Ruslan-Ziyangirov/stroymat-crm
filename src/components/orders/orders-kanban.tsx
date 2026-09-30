@@ -132,6 +132,7 @@ export function OrdersKanban({
     const targetStage = over.id as DealStage;
     const order = orders.find((o) => o.id === active.id);
     if (!order || order.stage === targetStage) return;
+    if (targetStage === "closed_lost" && !privileged) return;
     setMoveIntent({ order, targetStage });
   };
 
@@ -218,6 +219,7 @@ export function OrdersKanban({
               orders={byStage.get(stage) ?? []}
               now={now}
               onOpenOrder={setOpenOrderId}
+              locked={stage === "closed_lost" && !privileged}
             />
           ))}
         </div>
@@ -287,19 +289,25 @@ function KanbanColumn({
   orders,
   now,
   onOpenOrder,
+  locked,
 }: {
   stage: DealStage;
   orders: PipelineOrderRow[];
   now: Date;
   onOpenOrder: (id: string) => void;
+  /** Сюда нельзя перетаскивать (закрыть сделку может только руководитель). */
+  locked?: boolean;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: stage });
+  const { setNodeRef, isOver } = useDroppable({ id: stage, disabled: locked });
 
   return (
     <div className="w-72 shrink-0">
       <div className="bg-muted/60 mb-3 rounded-2xl p-3">
         <p className="text-sm font-semibold">{DEAL_STAGE_LABELS[stage]}</p>
-        <p className="text-muted-foreground text-xs">{orders.length}</p>
+        <p className="text-muted-foreground text-xs">
+          {orders.length}
+          {locked && " · закрывает руководитель"}
+        </p>
       </div>
 
       <div
@@ -372,8 +380,12 @@ function OrderCard({
         {order.manager_name ? ` · ${order.manager_name}` : ""}
       </p>
 
-      {order.total > 0 && (
+      {order.total > 0 ? (
         <p className="mt-1 text-sm font-semibold tabular-nums">{formatMoney(order.total)}</p>
+      ) : (
+        order.product_interest && (
+          <p className="text-muted-foreground mt-1 truncate text-xs">Интерес: {order.product_interest}</p>
+        )
       )}
 
       <div className="mt-2 space-y-1">

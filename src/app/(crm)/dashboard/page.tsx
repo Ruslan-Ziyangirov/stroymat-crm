@@ -6,7 +6,6 @@ import {
   ArrowUpRight,
   Lightbulb,
   Store,
-  Target,
   TriangleAlert,
   Trophy,
   UserRound,
@@ -44,6 +43,15 @@ import {
   type RankRow,
 } from "@/lib/analytics/dashboard";
 import { dealHealth } from "@/lib/analytics/pipeline";
+import {
+  DECISION_WINDOW_DAYS,
+  buildWorkList,
+  summarizeManager,
+  type ManagerOrder,
+  type OpenTask,
+} from "@/lib/analytics/manager";
+import { ManagerDashboard } from "@/components/dashboard/manager-dashboard";
+import type { NextStepOrder } from "@/components/orders/next-step-dialog";
 import { formatMoney, formatNumber, formatDate, formatPercent, daysSince } from "@/lib/format";
 import { ACTIVE_DEAL_STAGES, DEAL_STAGE_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -75,12 +83,15 @@ export default async function DashboardPage() {
   const supabase = await createClient();
   const privileged = isPrivileged(profile);
 
+  let latestQuery = supabase
+    .from("orders")
+    .select("id, number, stage, total, created_at, client:clients(id, name)")
+    .order("created_at", { ascending: false })
+    .limit(8);
+  if (!privileged) latestQuery = latestQuery.eq("manager_id", profile.id);
+
   const [latest, orders, stores, managers, activeOrdersRes, openTasksRes] = await Promise.all([
-    supabase
-      .from("orders")
-      .select("id, number, stage, total, created_at, client:clients(id, name)")
-      .order("created_at", { ascending: false })
-      .limit(8),
+    latestQuery,
     privileged ? fetchOrderSlices(12) : Promise.resolve([]),
     privileged ? getStores() : Promise.resolve([]),
     privileged ? getManagers() : Promise.resolve([]),
@@ -102,101 +113,110 @@ export default async function DashboardPage() {
   const recent = (latest.data ?? []) as unknown as Order[];
 
   if (!privileged) {
-    let storePlan: { target: number; actual: number } | null = null;
-    if (profile.store_id) {
-      const monthISO = currentMonthISO();
-      const [plans, storeOrders] = await Promise.all([
-        getMonthlyPlans(monthISO),
-        fetchOrderSlices(1, profile.store_id),
-      ]);
-      const plan = plans.find((p) => p.store_id === profile.store_id);
-      if (plan) {
-        const [point] = toMonthlyPoints(storeOrders, 1);
-        storePlan = { target: plan.target_amount, actual: point?.amount ?? 0 };
-      }
+    const now = new Date();
+    // Сделки, которые ещё в работе, плюс решённые за окно конверсии
+    // (и не раньше начала прошлого месяца — для сравнения месяц к месяцу).
+    const prevMonthStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1);
+    const windowStart = now.getTime() - DECISION_WINDOW_DAYS * 86_400_000;
+    const since = new Date(Math.min(prevMonthStart, windowStart)).toISOString();
+
+    const [myOrdersRes, openTasksRes, planRes, settingsRes] = await Promise.all([
+      supabase
+        .from("orders")
+        .select(
+          "id, number, total, comment, stage, created_at, stage_changed_at, budget, priority, product_interest, urgency, deal_type, proposal_amount, rejection_reason, rejection_comment, client:clients(id, name, phone)",
+        )
+        .eq("manager_id", profile.id)
+        .or(`stage.in.(${ACTIVE_DEAL_STAGES.join(",")}),stage_changed_at.gte."${since}"`),
+      supabase
+        .from("deal_tasks")
+        .select("order_id, due_at, type, comment")
+        .eq("status", "open")
+        .order("due_at", { ascending: true }),
+      supabase
+        .from("monthly_plans")
+        .select("target_amount")
+        .eq("month", currentMonthISO())
+        .eq("manager_id", profile.id)
+        .maybeSingle(),
+      supabase
+        .from("pipeline_settings")
+        .select("manager_active_deal_limit")
+        .eq("id", true)
+        .maybeSingle(),
+    ]);
+
+    type OrderRow = Omit<Order, "client"> & {
+      client: { id: string; name: string; phone: string | null } | null;
+    };
+    const orderRows = (myOrdersRes.data ?? []) as unknown as OrderRow[];
+    const myOrders: ManagerOrder[] = orderRows.map((o) => ({
+      id: o.id,
+      number: o.number,
+      total: Number(o.total ?? 0),
+      stage: o.stage,
+      created_at: o.created_at,
+      stage_changed_at: o.stage_changed_at,
+      rejection_reason: o.rejection_reason,
+      client_name: o.client?.name ?? "Клиент удалён",
+    }));
+    const openTasks = (openTasksRes.data ?? []) as OpenTask[];
+
+    const planTarget = planRes.data ? Number(planRes.data.target_amount) : null;
+    const summary = summarizeManager(myOrders, planTarget, now);
+    const workItems = buildWorkList(myOrders, openTasks, now);
+
+    // Данные для окна «Следующий шаг» — только по сделкам из списка.
+    const workIds = new Set(workItems.map((item) => item.orderId));
+    const firstTask = new Map<string, OpenTask>();
+    for (const t of openTasks) if (!firstTask.has(t.order_id)) firstTask.set(t.order_id, t);
+    const workOrders: Record<string, NextStepOrder> = {};
+    for (const o of orderRows) {
+      if (!workIds.has(o.id)) continue;
+      const task = firstTask.get(o.id);
+      workOrders[o.id] = {
+        id: o.id,
+        number: o.number,
+        name: `${o.client?.name ?? "Клиент удалён"} · ${o.number}`,
+        client_id: o.client?.id ?? null,
+        client_name: o.client?.name ?? "Клиент удалён",
+        client_phone: o.client?.phone ?? null,
+        total: Number(o.total ?? 0),
+        comment: o.comment,
+        created_at: o.created_at,
+        stage: o.stage,
+        manager_id: profile.id,
+        manager_name: profile.full_name,
+        budget: o.budget,
+        priority: o.priority,
+        product_interest: o.product_interest,
+        urgency: o.urgency,
+        deal_type: o.deal_type,
+        proposal_amount: o.proposal_amount,
+        rejection_reason: o.rejection_reason,
+        rejection_comment: o.rejection_comment,
+        openTask: task ? { due_at: task.due_at, type: task.type, comment: task.comment } : null,
+      };
     }
 
     return (
       <>
         <PageHeader
           title={`Здравствуйте, ${profile.full_name.split(" ")[0] || "коллега"}`}
-          description="Ваши последние заказы."
+          description="Ваш план, сделки в работе и воронка."
           actions={
             <Button asChild>
               <Link href="/orders/new">Новый заказ</Link>
             </Button>
           }
         />
-
-        {storePlan && (
-          <Card className="mb-4">
-            <CardHeader className="flex-row items-center gap-2">
-              <Target className="text-primary size-4" />
-              <CardTitle>План по филиалу на этот месяц</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="mb-2 flex items-baseline justify-between text-sm">
-                <span className="font-semibold tabular-nums">
-                  {formatMoney(storePlan.actual)}
-                </span>
-                <span className="text-muted-foreground">
-                  из {formatMoney(storePlan.target)} (
-                  {storePlan.target
-                    ? Math.round((storePlan.actual / storePlan.target) * 100)
-                    : 0}
-                  %)
-                </span>
-              </div>
-              <Progress
-                value={
-                  storePlan.target
-                    ? Math.min((storePlan.actual / storePlan.target) * 100, 100)
-                    : 0
-                }
-              />
-            </CardContent>
-          </Card>
-        )}
-
-        <Card>
-          <CardHeader className="flex-row items-center justify-between">
-            <CardTitle>Последние заказы</CardTitle>
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/orders">Все заказы</Link>
-            </Button>
-          </CardHeader>
-          <CardContent className="p-0">
-            <ul className="divide-y">
-              {recent.length ? (
-                recent.map((order) => (
-                  <li key={order.id}>
-                    <Link
-                      href={`/orders/${order.id}`}
-                      className="hover:bg-muted/50 flex items-center gap-3 px-6 py-3 transition-colors"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">
-                          {order.client?.name ?? "Клиент удалён"}
-                        </p>
-                        <p className="text-muted-foreground text-xs">
-                          {order.number} · {formatDate(order.created_at)}
-                        </p>
-                      </div>
-                      <DealStageBadge stage={order.stage} />
-                      <span className="w-28 text-right text-sm font-semibold tabular-nums">
-                        {formatMoney(order.total)}
-                      </span>
-                    </Link>
-                  </li>
-                ))
-              ) : (
-                <li className="text-muted-foreground px-6 py-10 text-center text-sm">
-                  Заказов пока нет
-                </li>
-              )}
-            </ul>
-          </CardContent>
-        </Card>
+        <ManagerDashboard
+          summary={summary}
+          workItems={workItems}
+          workOrders={workOrders}
+          recent={recent}
+          dealLimit={settingsRes.data?.manager_active_deal_limit ?? 80}
+        />
       </>
     );
   }
@@ -216,7 +236,8 @@ export default async function DashboardPage() {
   const lastCashFlowMonth = finance.cashFlow[finance.cashFlow.length - 1];
   const lastFinanceYear = finance.statements[finance.statements.length - 1];
 
-  const companyPlan = plans.find((p) => p.store_id === null)?.target_amount ?? null;
+  const companyPlan =
+    plans.find((p) => p.store_id === null && p.manager_id === null)?.target_amount ?? null;
   const storePlanMap = new Map(
     plans.filter((p) => p.store_id).map((p) => [p.store_id as string, p.target_amount]),
   );
@@ -317,7 +338,7 @@ export default async function DashboardPage() {
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">
-          <CardHeader className="flex-row items-center gap-2">
+          <CardHeader className="flex flex-row items-center gap-2">
             <Store className="text-primary size-4" />
             <div className="flex-1">
               <CardTitle>Магазины за месяц</CardTitle>
@@ -420,7 +441,7 @@ export default async function DashboardPage() {
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">
-          <CardHeader className="flex-row items-center justify-between">
+          <CardHeader className="flex flex-row items-center justify-between">
             <div className="flex items-center gap-2">
               <Wallet className="text-primary size-4" />
               <CardTitle>Финансы</CardTitle>
@@ -477,7 +498,7 @@ export default async function DashboardPage() {
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">
-          <CardHeader className="flex-row items-center gap-2">
+          <CardHeader className="flex flex-row items-center gap-2">
             <Trophy className="text-primary size-4" />
             <CardTitle>Менеджеры за месяц</CardTitle>
           </CardHeader>
@@ -520,7 +541,7 @@ export default async function DashboardPage() {
         </Card>
 
         <Card>
-          <CardHeader className="flex-row items-center gap-2">
+          <CardHeader className="flex flex-row items-center gap-2">
             <UserRound className="text-primary size-4" />
             <CardTitle>Клиенты</CardTitle>
           </CardHeader>
@@ -562,7 +583,7 @@ export default async function DashboardPage() {
       </div>
 
       <Card className="mt-4">
-        <CardHeader className="flex-row items-center gap-2">
+        <CardHeader className="flex flex-row items-center gap-2">
           <TriangleAlert className="size-4 text-amber-600" />
           <CardTitle>Сделки, требующие внимания</CardTitle>
         </CardHeader>
@@ -609,7 +630,7 @@ export default async function DashboardPage() {
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">
-          <CardHeader className="flex-row items-center justify-between">
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Последние заказы</CardTitle>
             <Button asChild variant="ghost" size="sm">
               <Link href="/orders">Все заказы</Link>
@@ -649,7 +670,7 @@ export default async function DashboardPage() {
         </Card>
 
         <Card>
-          <CardHeader className="flex-row items-center gap-2">
+          <CardHeader className="flex flex-row items-center gap-2">
             <Lightbulb className="text-primary size-4" />
             <CardTitle>Автоматические выводы</CardTitle>
           </CardHeader>

@@ -1,4 +1,4 @@
-import type { DealStage } from "@/lib/types";
+import type { DealStage, DealTaskType } from "@/lib/types";
 
 const TERMINAL_STAGES: DealStage[] = ["won", "closed_lost"];
 // «Условный отказ» — сделка ещё занимает место в лимите менеджера (см.
@@ -16,6 +16,33 @@ export function isTerminalStage(stage: DealStage): boolean {
 /** Нужна ли обязательная следующая задача при входе на этот этап. */
 export function requiresNextTask(stage: DealStage): boolean {
   return !TASK_EXEMPT_STAGES.includes(stage);
+}
+
+const STAGE_TASK_TEMPLATES: Partial<
+  Record<DealStage, { type: DealTaskType; inDays: number; comment: string }>
+> = {
+  new: { type: "call", inDays: 1, comment: "Связаться с клиентом, выяснить потребность" },
+  contacted: { type: "call", inDays: 1, comment: "Уточнить объём и сроки, подготовить КП" },
+  proposal_sent: { type: "call", inDays: 2, comment: "Убедиться, что КП получено, ответить на вопросы" },
+  meeting_scheduled: { type: "meeting", inDays: 1, comment: "Провести встречу, согласовать заказ" },
+};
+
+/**
+ * Следующая задача, которую система ставит сама при смене этапа (менеджер
+ * задачу не заполняет). Дедлайн — через N дней в 10:00 по Москве; для встречи —
+ * время самой встречи.
+ */
+export function stageTaskTemplate(
+  stage: DealStage,
+  now: Date = new Date(),
+  meetingAt?: string,
+): { type: DealTaskType; due_at: string; comment: string } | null {
+  const template = STAGE_TASK_TEMPLATES[stage];
+  if (!template) return null;
+  const due = meetingAt
+    ? new Date(meetingAt)
+    : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + template.inDays, 7));
+  return { type: template.type, due_at: due.toISOString(), comment: template.comment };
 }
 
 export interface DealHealth {

@@ -7,12 +7,12 @@ export function currentMonthISO() {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
 }
 
-/** Планы за месяц: общий по компании (store_id = null) и по филиалам. */
+/** Планы за месяц: общий по компании, по филиалам и личные планы менеджеров. */
 export async function getMonthlyPlans(month: string) {
   const supabase = await createClient();
   const { data } = await supabase
     .from("monthly_plans")
-    .select("id, month, store_id, target_amount, created_by, created_at, updated_at")
+    .select("id, month, store_id, manager_id, target_amount, created_by, created_at, updated_at")
     .eq("month", month);
   return (data ?? []) as MonthlyPlan[];
 }
@@ -21,7 +21,9 @@ export async function getAllPlans() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("monthly_plans")
-    .select("id, month, store_id, target_amount, created_by, created_at, updated_at, store:stores(id, name)")
+    .select(
+      "id, month, store_id, manager_id, target_amount, created_by, created_at, updated_at, store:stores(id, name), manager:profiles!monthly_plans_manager_id_fkey(id, full_name)",
+    )
     .order("month", { ascending: false });
   return (data ?? []) as unknown as MonthlyPlan[];
 }

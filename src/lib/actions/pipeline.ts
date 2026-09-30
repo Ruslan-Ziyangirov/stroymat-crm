@@ -6,7 +6,7 @@ import { requireProfile, requireRole } from "@/lib/auth";
 import { dealStageEnum, dealStageFieldsSchema, dealTaskSchema } from "@/lib/validations";
 import { assertManagerCapacity } from "@/lib/pipeline/capacity";
 import { ACTIVE_DEAL_STAGES, DEAL_STAGE_LABELS } from "@/lib/constants";
-import { requiresNextTask } from "@/lib/analytics/pipeline";
+import { requiresNextTask, stageTaskTemplate } from "@/lib/analytics/pipeline";
 import type { MutationResult } from "@/lib/actions/clients";
 import type { DealStage } from "@/lib/types";
 
@@ -14,6 +14,8 @@ interface MoveOrderStagePayload {
   targetStage: unknown;
   fields?: unknown;
   task?: unknown;
+  /** Что произошло по текущей задаче — сохраняется в закрытую задачу и в историю. */
+  result?: unknown;
 }
 
 const isCountedActive = (stage: DealStage) => (ACTIVE_DEAL_STAGES as DealStage[]).includes(stage);
@@ -39,17 +41,24 @@ export async function moveOrderStage(
   }
   const fields = fieldsParsed.data;
 
-  const taskRequired = requiresNextTask(targetStage);
+  // Следующая задача: если её не передали явно, система ставит её сама по
+  // шаблону этапа — правило «у активной сделки всегда есть следующий шаг»
+  // соблюдается без отдельного блока в форме.
   let task: ReturnType<typeof dealTaskSchema.parse> | undefined;
-  if (taskRequired) {
-    const taskParsed = dealTaskSchema.safeParse(payload.task ?? {});
-    if (!taskParsed.success) {
-      return {
-        ok: false,
-        error: taskParsed.error.issues[0]?.message ?? "Укажите следующую задачу по сделке",
-      };
+  if (requiresNextTask(targetStage)) {
+    if (payload.task) {
+      const taskParsed = dealTaskSchema.safeParse(payload.task);
+      if (!taskParsed.success) {
+        return {
+          ok: false,
+          error: taskParsed.error.issues[0]?.message ?? "Укажите следующую задачу по сделке",
+        };
+      }
+      task = taskParsed.data;
+    } else {
+      const template = stageTaskTemplate(targetStage, new Date(), fields.meeting_at);
+      if (template) task = { ...template, assignee_id: undefined };
     }
-    task = taskParsed.data;
   }
 
   const profile = await requireProfile();
@@ -64,10 +73,16 @@ export async function moveOrderStage(
   if (!order) return { ok: false, error: "Заказ не найден" };
 
   const currentStage = order.stage as DealStage;
+  const stageChanged = targetStage !== currentStage;
+  const result = typeof payload.result === "string" ? payload.result.trim() : "";
+
+  if (!stageChanged && !result) {
+    return { ok: false, error: "Запишите, что произошло, или выберите другой этап." };
+  }
 
   // «Закрыто и не реализовано» — только из «Условного отказа», и только
   // руководитель/админ, никогда сам менеджер.
-  if (targetStage === "closed_lost") {
+  if (stageChanged && targetStage === "closed_lost") {
     if (currentStage !== "conditional_rejection") {
       return {
         ok: false,
@@ -84,10 +99,22 @@ export async function moveOrderStage(
   }
 
   // Обязательные поля под целевой этап (гейтинг: технически нельзя перейти
-  // без нужных данных).
-  if (targetStage === "proposal_sent") {
+  // без нужных данных). Проверяем только при смене этапа — запись звонка
+  // внутри этапа не должна заново требовать уже внесённые поля.
+  if (stageChanged && targetStage === "won") {
+    const { count } = await supabase
+      .from("order_items")
+      .select("id", { count: "exact", head: true })
+      .eq("order_id", orderId);
+    if (!count) {
+      return {
+        ok: false,
+        error: "Добавьте в заказ хотя бы одну позицию, прежде чем переводить его в «Продажу».",
+      };
+    }
+  }
+  if (stageChanged && targetStage === "proposal_sent") {
     const missing =
-      fields.budget === undefined ||
       !fields.priority ||
       !fields.product_interest ||
       !fields.deal_type ||
@@ -96,14 +123,18 @@ export async function moveOrderStage(
       return {
         ok: false,
         error:
-          "Для «КП отправлено» укажите бюджет, приоритет, интересующий товар, тип сделки и сумму КП.",
+          "Для «КП отправлено» укажите сумму КП, приоритет, интересующий товар и тип сделки.",
       };
     }
   }
-  if (targetStage === "meeting_scheduled" && !fields.meeting_at) {
+  if (stageChanged && targetStage === "meeting_scheduled" && !fields.meeting_at) {
     return { ok: false, error: "Укажите дату и время встречи." };
   }
-  if (targetStage === "conditional_rejection" && (!fields.rejection_reason || !fields.rejection_comment)) {
+  if (
+    stageChanged &&
+    targetStage === "conditional_rejection" &&
+    (!fields.rejection_reason || !fields.rejection_comment)
+  ) {
     return { ok: false, error: "Выберите причину отказа и опишите ситуацию." };
   }
 
@@ -115,11 +146,13 @@ export async function moveOrderStage(
   }
 
   const nowIso = new Date().toISOString();
-  const updatePayload: Record<string, unknown> = {
-    stage: targetStage,
-    stage_changed_at: nowIso,
-    updated_at: nowIso,
-  };
+  // «Дней на этапе» считаются от stage_changed_at, поэтому сбрасываем его
+  // только при реальной смене этапа — иначе звонки «оживляли» бы застрявшую сделку.
+  const updatePayload: Record<string, unknown> = { updated_at: nowIso };
+  if (stageChanged) {
+    updatePayload.stage = targetStage;
+    updatePayload.stage_changed_at = nowIso;
+  }
   if (fields.budget !== undefined) updatePayload.budget = fields.budget;
   if (fields.priority) updatePayload.priority = fields.priority;
   if (fields.product_interest) updatePayload.product_interest = fields.product_interest;
@@ -127,7 +160,7 @@ export async function moveOrderStage(
   if (fields.deal_type) updatePayload.deal_type = fields.deal_type;
   if (fields.proposal_amount !== undefined) updatePayload.proposal_amount = fields.proposal_amount;
   if (fields.meeting_at) updatePayload.meeting_at = new Date(fields.meeting_at).toISOString();
-  if (targetStage === "conditional_rejection") {
+  if (stageChanged && targetStage === "conditional_rejection") {
     updatePayload.rejection_reason = fields.rejection_reason;
     updatePayload.rejection_comment = fields.rejection_comment;
   }
@@ -143,10 +176,10 @@ export async function moveOrderStage(
     return { ok: false, error: "Недостаточно прав для изменения этого заказа." };
   }
 
-  // Переход сам по себе резолвит прежнюю открытую задачу.
+  // Новый шаг закрывает прежнюю открытую задачу, вместе с её результатом.
   await supabase
     .from("deal_tasks")
-    .update({ status: "done", completed_at: nowIso })
+    .update({ status: "done", completed_at: nowIso, ...(result ? { result } : {}) })
     .eq("order_id", orderId)
     .eq("status", "open");
 
@@ -165,12 +198,13 @@ export async function moveOrderStage(
   // Триггер БД сам пишет запись в client_events при смене stage — здесь
   // добавляем только более развёрнутый комментарий по причине отказа/задаче,
   // если он есть (базовую запись «этап X → Y» создаёт trg_order_history()).
-  let extra: string | null = null;
-  if (targetStage === "conditional_rejection") {
-    extra = [fields.rejection_reason, fields.rejection_comment].filter(Boolean).join(". ");
-  } else if (task) {
-    extra = `Следующий шаг: ${task.comment}`;
+  const parts: string[] = [];
+  if (result) parts.push(`Результат: ${result}`);
+  if (stageChanged && targetStage === "conditional_rejection") {
+    parts.push([fields.rejection_reason, fields.rejection_comment].filter(Boolean).join(". "));
   }
+  if (task) parts.push(`Следующий шаг: ${task.comment}`);
+  const extra = parts.join("\n");
   if (extra) {
     await supabase.from("client_events").insert({
       client_id: order.client_id,

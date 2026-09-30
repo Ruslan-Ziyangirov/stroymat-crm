@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 interface StatCardProps {
   label: string;
   value: string;
-  /** Прирост к предыдущему периоду, %. null — сравнивать не с чем. */
+  /** Прирост к предыдущему периоду, %. null — сравнивать не с чем, не передан — сравнение не показываем. */
   delta?: number | null;
   hint?: string;
   /** Для метрик, где рост — это плохо (например, отмены). */
@@ -38,9 +38,9 @@ export function StatCard({ label, value, delta, hint, invert }: StatCardProps) {
             <Icon className="size-3" />
             {Math.abs(delta!).toFixed(1).replace(".", ",")} %
           </span>
-        ) : (
+        ) : delta === null ? (
           <span className="text-muted-foreground">нет данных для сравнения</span>
-        )}
+        ) : null}
         {hint && <span className="text-muted-foreground truncate">{hint}</span>}
       </div>
     </div>

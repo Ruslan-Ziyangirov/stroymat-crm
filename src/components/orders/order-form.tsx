@@ -25,6 +25,13 @@ import {
   QuickAddClientDialog,
   type QuickClient,
 } from "@/components/clients/quick-add-client-dialog";
+import {
+  NextTaskFields,
+  emptyTaskDraft,
+  validateTaskDraft,
+  type TaskDraft,
+  type TaskDraftErrors,
+} from "@/components/orders/next-task-fields";
 import { createOrder, updateOrder } from "@/lib/actions/orders";
 import { UNITS } from "@/lib/constants";
 import { formatMoney } from "@/lib/format";
@@ -59,6 +66,8 @@ export function OrderForm({
   const [pending, startTransition] = React.useTransition();
   const [clientList, setClientList] = React.useState(clients);
   const [quickAddOpen, setQuickAddOpen] = React.useState(false);
+  const [task, setTask] = React.useState<TaskDraft>(() => emptyTaskDraft(null));
+  const [taskErrors, setTaskErrors] = React.useState<TaskDraftErrors>({});
 
   const {
     register,
@@ -119,8 +128,21 @@ export function OrderForm({
   };
 
   const onSubmit = (values: OrderInput) => {
+    if (!order) {
+      const nextErrors = validateTaskDraft(task);
+      setTaskErrors(nextErrors);
+      if (Object.keys(nextErrors).length) return;
+    }
+
     startTransition(async () => {
-      const result = order ? await updateOrder(order.id, values) : await createOrder(values);
+      const result = order
+        ? await updateOrder(order.id, values)
+        : await createOrder(values, {
+            assignee_id: task.assignee_id || undefined,
+            type: task.type,
+            due_at: task.due_at,
+            comment: task.comment,
+          });
       if (!result.ok) {
         toast.error(result.error ?? "Не удалось сохранить заказ");
         return;
@@ -132,7 +154,12 @@ export function OrderForm({
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form
+      onSubmit={handleSubmit(onSubmit, () => {
+        if (!order) setTaskErrors(validateTaskDraft(task));
+      })}
+      className="space-y-4"
+    >
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
@@ -330,8 +357,28 @@ export function OrderForm({
         </Card>
       </div>
 
+      {!order && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Следующий шаг</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <NextTaskFields
+              value={task}
+              onChange={(next) => {
+                setTask(next);
+                if (Object.keys(taskErrors).length) setTaskErrors(validateTaskDraft(next));
+              }}
+              managers={managers}
+              errors={taskErrors}
+              title="Первая задача по сделке — без неё сделка сразу попадёт в «Нет задачи»"
+            />
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
-        <CardHeader className="flex-row items-center justify-between">
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Состав заказа</CardTitle>
           <Button
             type="button"
@@ -348,6 +395,12 @@ export function OrderForm({
         <CardContent className="space-y-3">
           {errors.items?.message && (
             <p className="text-destructive text-sm">{errors.items.message}</p>
+          )}
+          {fields.length === 0 && (
+            <p className="text-muted-foreground rounded-lg border border-dashed p-4 text-center text-sm">
+              Позиций пока нет — их можно добавить позже, когда дойдёт до КП. Без позиций сделку
+              нельзя перевести в «Продажу».
+            </p>
           )}
 
           {fields.map((field, index) => {
@@ -437,7 +490,6 @@ export function OrderForm({
                     variant="ghost"
                     size="icon"
                     onClick={() => remove(index)}
-                    disabled={fields.length === 1}
                   >
                     <Trash2 className="text-destructive size-4" />
                   </Button>

@@ -88,6 +88,8 @@ export interface DealTask {
   due_at: string;
   comment: string;
   status: DealTaskStatus;
+  /** Что произошло по задаче — заполняется при её закрытии. */
+  result: string | null;
   completed_at: string | null;
   created_by: string | null;
   created_at: string;
@@ -237,13 +239,16 @@ export interface MonthlyPlan {
   id: string;
   /** Первое число месяца, YYYY-MM-DD. */
   month: string;
-  /** null — план по компании целиком. */
+  /** Пусто вместе с manager_id — план по компании целиком. */
   store_id: string | null;
+  /** Личный план менеджера (взаимоисключает store_id). */
+  manager_id: string | null;
   target_amount: number;
   created_by: string | null;
   created_at: string;
   updated_at: string;
   store?: Pick<Store, "id" | "name"> | null;
+  manager?: Pick<Profile, "id" | "full_name"> | null;
 }
 
 export type FinanceUploadKind = "cash_flow_51" | "financial_statement";
